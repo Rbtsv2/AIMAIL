@@ -1,0 +1,36 @@
+# Dépendances et builds
+node_modules/
+out/
+dist/
+release/
+*.tsbuildinfo
+.vite/
+.electron-vite/
+
+# Secrets et configuration locale
+.env
+.env.*
+!.env.example
+
+# Données locales (base, pièces jointes, sauvegardes)
+*.db
+*.db-wal
+*.db-shm
+*.mailbackup
+attachments/
+
+# Journaux et caches
+*.log
+logs/
+.cache/
+coverage/
+.nyc_output/
+
+# Outils et OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*~
