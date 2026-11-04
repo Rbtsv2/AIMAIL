@@ -24,14 +24,16 @@ export function AddAccountFlow({ onDone }: { onDone?: () => void }) {
 
   const finish = async (input: AccountInput) => {
     setBusy(true); setError(undefined)
-    const t = await invoke('accounts:test', input)
-    if (!t.ok) { setBusy(false); setError(t.error); return }
-    const a = await add(input)
-    await invoke('sync:now', a.id).catch(() => {})
-    setBusy(false)
-    useUi.getState().toast({ text: `${a.email} ajouté` })
-    useMail.getState().setView({ accountId: a.id, role: 'inbox', label: 'Réception' })
-    onDone?.()
+    try {
+      const t = await Promise.race([invoke('accounts:test', input), new Promise<{ ok: false; error: string }>((r) => setTimeout(() => r({ ok: false, error: 'Aucune réponse du serveur après 30 s (pare-feu ? antivirus ? adresse du serveur ?)' }), 30_000))])
+      if (!t.ok) { setError(t.error); return }
+      const a = await add(input)
+      await invoke('sync:now', a.id).catch(() => {})
+      useUi.getState().toast({ text: `${a.email} ajouté` })
+      useMail.getState().setView({ accountId: a.id, role: 'inbox', label: 'Réception' })
+      onDone?.()
+    } catch (e: any) { setError(e?.message ?? String(e)) }
+    finally { setBusy(false) }
   }
 
   const pick = async (p: ProviderPreset) => {

@@ -51,7 +51,8 @@ export class ImapSyncEngine implements SyncEngine {
     this.client = new ImapFlow({
       host: this.account.imap.host, port: this.account.imap.port, secure: this.account.imap.secure,
       auth: auth.accessToken ? { user: auth.user, accessToken: auth.accessToken } : { user: auth.user, pass: auth.pass ?? '' },
-      logger: false, emitLogs: false
+      logger: false, emitLogs: false,
+      connectionTimeout: 20_000, greetingTimeout: 15_000, socketTimeout: 5 * 60_000
     })
     this.client.on('error', (e) => log.warn('imap', this.account.email, e.message))
     await this.client.connect()

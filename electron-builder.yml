@@ -10,22 +10,54 @@ files:
 asarUnpack:
   - node_modules/better-sqlite3/**
 afterSign: scripts/notarize.js
+publish:
+  provider: github
+  owner: Rbtsv2
+  repo: AIMAIL
+  releaseType: release
 mac:
   category: public.app-category.productivity
   target: [dmg, zip]
+  artifactName: AIMAIL-${version}-${arch}.${ext}
+  icon: resources/icon.png
   hardenedRuntime: true
   entitlementsInherit: resources/entitlements.mac.plist
 win:
-  target: [nsis]
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: resources/icon.ico
+  artifactName: AIMAIL-Setup-${version}.${ext}
 nsis:
   oneClick: false
+  perMachine: false
   allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: AIMAIL
+  installerLanguages: [fr_FR, en_US]
+  language: 1036
 linux:
   target: [AppImage, deb, rpm]
-  category: Network
+  category: Network;Email
+  icon: resources/icons
+  maintainer: Charles Fournier <contact@chilloutnetworks.com>
+  synopsis: Client mail orienté IA
+  description: Client mail de bureau avec assistant IA (Ollama, Claude, OpenAI) — IMAP/SMTP multi-comptes, contacts, agenda.
+  artifactName: ${name}-${version}.${ext}
+  desktop:
+    Name: AIMAIL
+    Comment: Client mail orienté IA
+    MimeType: x-scheme-handler/mailto;x-scheme-handler/aimail
+    StartupWMClass: AIMAIL
+appImage:
+  artifactName: AIMAIL-${version}.${ext}
+deb:
+  depends: [libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libsecret-1-0]
+rpm:
+  depends: [gtk3, libnotify, nss, libXScrnSaver, libXtst, xdg-utils, at-spi2-core, libsecret]
 protocols:
-  - name: Mail OAuth
-    schemes: [electron-mail]
+  - name: AIMAIL OAuth
+    schemes: [aimail]
 extraResources:
   - from: src/main/db/migrations
     to: migrations

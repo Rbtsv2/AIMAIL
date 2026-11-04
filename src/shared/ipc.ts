@@ -21,6 +21,7 @@ export interface AppSettings {
   collectAddresses: boolean
   fullTextIndex: boolean
   confirmSend: boolean
+  autoUpdate: boolean
   purgeSpamDays: number    // 0 = jamais
   purgeTrashDays: number   // 0 = jamais
 }
@@ -103,6 +104,10 @@ export interface IpcInvoke {
   'signatures:save': (s: Signature) => Signature
   'signatures:delete': (id: string) => void
 
+  'update:state': () => UpdateState
+  'update:check': () => UpdateState
+  'update:install': () => void
+
   'settings:get': () => AppSettings
   'settings:set': (patch: Partial<AppSettings>) => AppSettings
   'ai:settings:get': () => AiSettings
@@ -172,6 +177,17 @@ export interface IpcEvents {
   'calendar:changed': Record<string, never>
   'ai:refs': { streamId: string; refs: { messageId: string; threadId: string; subject: string; from: string; date: number; account: string }[] }
   'notify': { title: string; body: string; threadId: string }
+  'update:state': UpdateState
 }
 
 export type { Account, AccountInput, Folder, Thread, Message, MessageHeader, Draft, OutboxItem, Signature, AiSettings, AiTask, AiModelInfo }
+
+export interface UpdateState {
+  status: 'idle' | 'disabled' | 'checking' | 'up-to-date' | 'downloading' | 'ready' | 'error'
+  current: string
+  version?: string
+  notes?: string
+  progress?: number
+  error?: string
+  checkedAt?: number
+}

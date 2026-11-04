@@ -5,7 +5,7 @@ import type { AppSettings } from '@shared/ipc'
 import { DEFAULT_AI_SETTINGS, type AiSettings } from '@shared/ai/AiSettings'
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
-  theme: 'system', density: 'comfortable', loadRemoteImages: true, undoSendSeconds: 0, markReadDelayMs: 800, collectAddresses: true, fullTextIndex: true, confirmSend: true, purgeSpamDays: 0, purgeTrashDays: 0
+  theme: 'system', density: 'comfortable', loadRemoteImages: true, undoSendSeconds: 0, markReadDelayMs: 800, collectAddresses: true, fullTextIndex: true, confirmSend: true, autoUpdate: true, purgeSpamDays: 0, purgeTrashDays: 0
 }
 
 function read<T>(key: string, fallback: T): T {

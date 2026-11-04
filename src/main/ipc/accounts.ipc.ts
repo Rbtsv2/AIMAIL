@@ -1,4 +1,5 @@
 // src/main/ipc/accounts.ipc.ts
+import { log } from '../utils/logger'
 import { handle } from './index'
 import { AccountRepo } from '../db/repositories/AccountRepo'
 import { Credentials } from '../auth/Credentials'
@@ -26,13 +27,13 @@ export function registerAccountsIpc(): void {
   })
   handle('accounts:test', async (input) => {
     const tmp: Account = { id: `tmp-${Date.now()}`, email: input.email, name: input.name, provider: input.provider, auth: input.auth, imap: input.imap, smtp: input.smtp, color: '', defaultSignatureId: null, aiInstructions: '', purgeSpamDays: null, purgeTrashDays: null, createdAt: 0 }
-    Credentials.setAccount(tmp.id, input.credentials)
     try {
+      Credentials.setAccount(tmp.id, input.credentials)
       const e = new ImapSyncEngine(tmp)
       await e.connect(); await e.disconnect()
       await verifySmtp(tmp)
       return { ok: true }
-    } catch (e: any) { return { ok: false, error: e?.message ?? String(e) } }
-    finally { Credentials.remove(`account:${tmp.id}`) }
+    } catch (e: any) { log.warn('accounts', 'test', input.email, e?.message ?? e); return { ok: false, error: e?.message ?? String(e) } }
+    finally { try { Credentials.remove(`account:${tmp.id}`) } catch {} }
   })
 }

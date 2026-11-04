@@ -41,14 +41,20 @@ function orderFolders(input: Folder[]): Folder[] {
   for (const f of custom) { const p = parentPathOf(f); const arr = byParent.get(p) ?? []; arr.push(f); byParent.set(p, arr) }
   const cmp = (a: Folder, b: Folder) => (a.sortOrder ?? 1e9) - (b.sortOrder ?? 1e9) || leafOf(a).localeCompare(leafOf(b), 'fr')
   const out: Folder[] = []
-  const walk = (parent: string) => { for (const f of (byParent.get(parent) ?? []).sort(cmp)) { out.push(f); walk(f.path) } }
-  const root = rootOf(all)
-  walk(root)
-  for (const f of custom) if (!out.includes(f)) out.push(f) // orphelins (parent non sélectionnable)
-  const idx = (f: Folder) => out.indexOf(f)
+  const walk = (parent: string) => { for (const f of (byParent.get(parent) ?? []).sort(cmp)) { if (out.includes(f)) continue; out.push(f); walk(f.path) } }
+  // sous-dossiers d'un dossier système (ex. Outlook : Archive/2026) : rattachés juste sous ce dossier
+  const withChildren = (f: Folder): Folder[] => { const before = out.length; walk(f.path); return out.splice(before) }
   const spam = system.filter((f) => f.role === 'spam' || f.role === 'trash')
   const head = system.filter((f) => f.role !== 'spam' && f.role !== 'trash')
-  return [...head, ...out.sort((a, b) => idx(a) - idx(b)), ...spam]
+  const result: Folder[] = []
+  for (const f of head) { result.push(f); const kids = withChildren(f); result.push(...kids); out.push(...kids) }
+  const root = rootOf(all)
+  const start = out.length
+  walk(root)
+  for (const f of custom) if (!out.includes(f)) out.push(f) // orphelins (parent non sélectionnable)
+  result.push(...out.slice(start))
+  for (const f of spam) { result.push(f); const kids = withChildren(f); result.push(...kids); out.push(...kids) }
+  return result
 }
 
 type Menu = { x: number; y: number; folder: Folder | null; accountId: string }

@@ -1,5 +1,5 @@
 // src/main/index.ts
-import { app, BrowserWindow, Notification, nativeTheme } from 'electron'
+import { app, BrowserWindow, dialog, Notification, nativeTheme } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { createWindow, getWindow } from './window'
 import { createTray } from './tray'
@@ -17,6 +17,7 @@ import { log } from './utils/logger'
 import { OllamaProvider } from './ai/providers/OllamaProvider'
 import { Indexer } from './sync/Indexer'
 import { Janitor } from './sync/Janitor'
+import { Updater } from './Updater'
 
 if (process.platform === 'linux') {
   // hérité par le processus GPU : coupe les messages de diagnostic Mesa (« GBM-DRV error »)
@@ -39,7 +40,18 @@ if (!app.requestSingleInstanceLock()) app.quit()
 // en développement, l'enregistrement du protocole passe par xdg-mime (bruyant, inutile) : seulement en version installée
 if (app.isPackaged) app.setAsDefaultProtocolClient(APP_PROTOCOL)
 
+// erreur fatale au démarrage : journal + boîte de dialogue au lieu d'une fermeture silencieuse
+function fatal(where: string, e: unknown): void {
+  const msg = e instanceof Error ? `${e.message}\n\n${e.stack ?? ''}` : String(e)
+  log.error('fatal', where, e)
+  try { dialog.showErrorBox(`AIMAIL ne peut pas démarrer (${where})`, `${msg}\n\nJournal : ${log.path() ?? '—'}`) } catch {}
+  app.exit(1)
+}
+process.on('uncaughtException', (e) => { if (!app.isReady()) fatal('uncaughtException', e); else log.error('uncaught', e) })
+process.on('unhandledRejection', (e) => log.error('unhandledRejection', e))
+
 app.whenReady().then(async () => {
+  try {
   electronApp.setAppUserModelId('com.chilloutnetworks.aimail')
   app.on('browser-window-created', (_, w) => optimizer.watchWindowShortcuts(w))
   getDb()
@@ -53,6 +65,7 @@ app.whenReady().then(async () => {
   setTimeout(() => void CalendarService.sync(), 8000)
   setTimeout(() => void Indexer.runOnce(), 15000)
   setInterval(() => void Indexer.runOnce(), 3 * 60_000)
+  Updater.start()
   setTimeout(() => void Janitor.runOnce(), 90_000)
   setInterval(() => void Janitor.runOnce(), 6 * 3600_000)
   setTimeout(() => { const ai = SettingsRepo.ai(); if (ai.enabled && ai.provider.kind === 'ollama') void new OllamaProvider(ai.provider.baseUrl).warm(ai.provider.model) }, 3000)
@@ -68,6 +81,7 @@ app.whenReady().then(async () => {
 
   app.on('second-instance', () => { const w = getWindow(); if (w) { if (w.isMinimized()) w.restore(); w.focus() } })
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
+  } catch (e) { fatal('démarrage', e) }
 })
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })

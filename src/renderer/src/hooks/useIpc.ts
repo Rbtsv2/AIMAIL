@@ -7,6 +7,7 @@ import { useAi } from '@/stores/ai.store'
 import { useCompose } from '@/stores/compose.store'
 import { useUi } from '@/stores/ui.store'
 import { useChat } from '@/stores/chat.store'
+import { useUpdate } from '@/stores/update.store'
 
 export function useIpcBridge(): void {
   useEffect(() => {
@@ -24,7 +25,16 @@ export function useIpcBridge(): void {
     }
     const schedule = () => { if (timer === null) timer = window.setTimeout(flush, 300) }
 
+    let announced = ''
+    void useUpdate.getState().load()
     const offs = [
+      on('update:state', (u) => {
+        useUpdate.getState().set(u)
+        if (u.status === 'ready' && u.version && announced !== u.version) {
+          announced = u.version
+          useUi.getState().toast({ text: `AIMAIL ${u.version} est prêt à être installé`, ttl: 15000, action: { label: 'Redémarrer', fn: () => void useUpdate.getState().install() } })
+        }
+      }),
       on('sync:status', (s) => { useAccounts.getState().setStatus(s); if (s.state === 'idle') { pending.accounts.add(s.accountId); schedule() } }),
       on('mail:changed', (p) => {
         if (p.accountId) pending.accounts.add(p.accountId)

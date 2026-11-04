@@ -24,5 +24,5 @@ export function registerIpc(): void {
     for (const w of BrowserWindow.getAllWindows()) w.webContents.send(k, p)
   })
   forward('sync:status'); forward('mail:changed'); forward('outbox:changed')
-  forward('ai:token'); forward('ai:done'); forward('ai:error'); forward('ai:tool'); forward('ai:refs'); forward('calendar:changed'); forward('notify')
+  forward('ai:token'); forward('ai:done'); forward('ai:error'); forward('ai:tool'); forward('ai:refs'); forward('calendar:changed'); forward('notify'); forward('update:state')
 }
