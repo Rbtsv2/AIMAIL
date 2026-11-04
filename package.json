@@ -21,7 +21,8 @@
     "build:win": "bash scripts/build-win.sh",
     "build:mac": "bash scripts/build-mac.sh",
     "build:linux": "bash scripts/build-linux.sh",
-    "dist:linux": "electron-vite build && electron-builder --linux"
+    "dist:linux": "electron-vite build && electron-builder --linux",
+    "dist:linux:ci": "electron-vite build && electron-builder --linux AppImage deb"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

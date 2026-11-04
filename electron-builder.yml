@@ -54,6 +54,7 @@ appImage:
 deb:
   depends: [libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libsecret-1-0]
 rpm:
+  fpm: ['--rpm-rpmbuild-define', '_build_id_links none']
   depends: [gtk3, libnotify, nss, libXScrnSaver, libXtst, xdg-utils, at-spi2-core, libsecret]
 protocols:
   - name: AIMAIL OAuth
