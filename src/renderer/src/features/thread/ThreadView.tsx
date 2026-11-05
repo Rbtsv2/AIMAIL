@@ -4,6 +4,9 @@ import { invoke } from '@/lib/api'
 import { useUi } from '@/stores/ui.store'
 import { AssistantChat } from '@/features/ai/AssistantChat'
 import { ChatRefsPanel } from '@/features/ai/ChatRefsPanel'
+import { RepliesHub } from '@/features/ai/RepliesHub'
+import { useReplies } from '@/stores/replies.store'
+import { ArrowLeft } from 'lucide-react'
 import { useChat } from '@/stores/chat.store'
 import { useAccounts } from '@/stores/accounts.store'
 import { useCompose } from '@/stores/compose.store'
@@ -20,6 +23,8 @@ export function ThreadView() {
   const selection = useMail((s) => s.selection)
   const bulk = useMail((s) => s.bulk)
   const chatActive = useChat((s) => s.turns.length > 0)
+  const repliesCount = useReplies((s) => s.items.length)
+  const hubOpen = useReplies((s) => s.hubOpen)
   if (selection.length > 1) {
     const n = selection.length
     return (
@@ -45,7 +50,7 @@ export function ThreadView() {
     return (
       <main className="pane">
         <div className="pane-head drag" />
-        {chatActive ? <AssistantChat /> : <div className="empty"><div><h3>Aucun message sélectionné</h3><p>Choisissez un fil à gauche, ou appuyez sur ⌘K.</p><AssistantChat /></div></div>}
+        {chatActive ? <AssistantChat /> : repliesCount > 0 ? <div className="hub-wrap"><RepliesHub /><AssistantChat /></div> : <div className="empty"><div><RepliesHub /><AssistantChat /></div></div>}
       </main>
     )
   }
@@ -64,6 +69,7 @@ export function ThreadView() {
   return (
     <main className="pane">
       <div className="pane-head drag">
+        {hubOpen && repliesCount > 0 && <button className="btn quiet head-btn" style={{ marginRight: 'auto' }} onClick={() => void useMail.getState().select(null)}><ArrowLeft size={14} /> Réponses préparées</button>}
         {isDraft
           ? <button className="btn primary no-drag" style={{ marginRight: 8 }} onClick={() => void useCompose.getState().resumeMessage(last.id)}><PenLine size={14} /> Reprendre la rédaction</button>
           : <>

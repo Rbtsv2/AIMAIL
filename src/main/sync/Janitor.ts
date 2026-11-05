@@ -25,8 +25,10 @@ export const Janitor = {
         const trashDays = a.purgeTrashDays ?? app.purgeTrashDays ?? 0
         if (spamDays > 0) rules.push({ role: 'spam', days: spamDays })
         if (trashDays > 0) rules.push({ role: 'trash', days: trashDays })
+        // dossiers avec rétention propre
+        for (const f of FolderRepo.list(a.id)) if (f.purgeDays && f.purgeDays > 0 && f.role !== 'spam' && f.role !== 'trash') rules.push({ role: f.id as any, days: f.purgeDays })
         for (const rule of rules) {
-        const f = FolderRepo.list(a.id).find((x) => x.role === rule.role)
+        const f = FolderRepo.list(a.id).find((x) => x.role === rule.role) ?? FolderRepo.get(rule.role)
         if (!f) continue
         const cutoff = Date.now() - rule.days * 86400_000
         const rows = getDb().prepare('SELECT id, uid FROM messages WHERE folder_id = ? AND date < ? LIMIT 500').all(f.id, cutoff) as { id: string; uid: number }[]

@@ -1,8 +1,14 @@
+/* src/renderer/src/styles/tokens.css */
 :root {
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable", "Segoe UI", Inter, Roboto, system-ui, sans-serif;
   --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
 
   --fs-xs: 11px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 17px; --fs-xl: 22px;
+}
+/* taille des textes (Réglages → Apparence) : tout est exprimé en var(--fs-*), donc tout suit */
+:root[data-font-size="small"] { --fs-xs: 10px; --fs-sm: 12px; --fs-md: 13.5px; --fs-lg: 15.5px; --fs-xl: 20px; --row-h: 66px; }
+:root[data-font-size="large"] { --fs-xs: 12.5px; --fs-sm: 15px; --fs-md: 17px; --fs-lg: 19.5px; --fs-xl: 25px; --row-h: 82px; }
+:root {
   --lh: 1.45;
 
   --bg: #f5f5f7;
@@ -33,5 +39,3 @@
   --list-w: 352px;
   --row-h: 72px;
 }
-
-:root[data-density="compact"] { --row-h: 56px; --fs-md: 14px; }

@@ -1,6 +1,6 @@
 // src/renderer/src/features/inbox/ThreadMenu.tsx
 import { useEffect } from 'react'
-import { Reply, Forward, Mail, MailOpen, Star, Archive, ShieldAlert, ShieldCheck, Trash2, Inbox, Flame } from 'lucide-react'
+import { Reply, Forward, Mail, MailOpen, Star, Archive, ShieldAlert, ShieldCheck, Trash2, Inbox, Flame, ListFilter } from 'lucide-react'
 import type { Thread } from '@shared/models/Thread'
 import { useMail } from '@/stores/mail.store'
 import { useAccounts } from '@/stores/accounts.store'
@@ -58,6 +58,7 @@ export function ThreadMenu({ menu, onClose }: { menu: ThreadMenuState; onClose: 
         : <>
             <button onClick={() => run(async () => { next(); await invoke('messages:move', await ids(), 'archive') }, 'Archivé')}><Archive size={14} /> Archiver</button>
             <button onClick={() => run(async () => { next(); await invoke('messages:move', await ids(), 'spam') }, 'Signalé comme indésirable')}><ShieldAlert size={14} /> Indésirable</button>
+            <button onClick={() => run(async () => { const r = await last(); const from = r.last.from; useUi.getState().openRuleFor({ accountId: t.accountId, from: from.address, name: from.name || from.address }) })}><ListFilter size={14} /> Créer une règle pour cet expéditeur…</button>
           </>}
       {inSpam && <button onClick={() => run(async () => { next(); await invoke('messages:move', await ids(), 'inbox') }, 'Pas indésirable')}><ShieldCheck size={14} /> Pas indésirable</button>}
       {!inTrash && <button className="danger" onClick={() => { onClose(); void useMail.getState().trash(t.id) }}><Trash2 size={14} /> Supprimer</button>}

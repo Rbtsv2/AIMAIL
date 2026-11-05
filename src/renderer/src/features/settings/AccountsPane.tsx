@@ -29,6 +29,9 @@ export function AccountsPane() {
             <Select value={a.defaultSignatureId ?? ''} onChange={(e) => void update(a.id, { defaultSignatureId: e.target.value || null })}>
               <option value="">Aucune</option>
               {sigs.filter((s) => !s.accountId || s.accountId === a.id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {sigs.some((s) => s.accountId && s.accountId !== a.id) && <optgroup label="Signatures d’autres comptes">
+                {sigs.filter((s) => s.accountId && s.accountId !== a.id).map((s) => <option key={s.id} value={s.id}>{s.name} — {accounts.find((x) => x.id === s.accountId)?.email ?? 'autre compte'}</option>)}
+              </optgroup>}
             </Select>
           </Row>
           <Row label="Vider les Indésirables" hint="Suppression définitive des messages plus anciens que ce délai sur ce compte.">

@@ -141,6 +141,19 @@ function kwic(text: string, terms: string[], windows = 4, span = 420, preferDate
 }
 
 // phrases datées contenant un terme de la question : extraction déterministe, en tête du contexte
+// texte brut d'un message (corps ou extrait)
+function asTextOf(m: { bodyText?: string | null; snippet?: string | null }): string { return (m.bodyText || m.snippet || '').replace(/\s+/g, ' ').trim() }
+// la « réponse » reprend-elle le message reçu ? (phrases communes) ou le signe-t-elle au nom de l'expéditeur ?
+function looksLikeEcho(reply: string, received: string, senderName?: string | null): boolean {
+  const nz = (x: string) => x.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+  const sents = reply.split(/(?<=[.!?])\s+|\n+/).map(nz).filter((x) => x.split(' ').length >= 6)
+  if (!sents.length) return false
+  const recv = nz(received)
+  const copied = sents.filter((x) => recv.includes(x)).length
+  const ratio = copied / sents.length
+  const signed = !!senderName && senderName.trim().length > 3 && nz(reply).trim().endsWith(nz(senderName).trim())
+  return ratio >= 0.5 || (ratio >= 0.3 && signed) || signed
+}
 const AMOUNT_RE = /\d[\d\s.,]*\s?(?:€|euros?|eur\b|\$|%)/i
 function keySentences(text: string, terms: string[], max = 4, mode: 'date' | 'amount' | 'any' = 'date'): string[] {
   const norm = (x: string) => x.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -605,6 +618,21 @@ export const AiService = {
           const v = cleanReply(restore(verified), account.name, sigText)
           if (v && v.length > 20 && Math.abs(v.length - final.length) < final.length * 0.6) final = v
         } catch (e: any) { log.warn('verify', e?.message ?? e) }
+      }
+      // garde-fou « écho » : une réponse qui reprend le message reçu (ou le signe au nom de l'expéditeur) est refaite une fois
+      if (input.task === 'reply' && thread.length) {
+        const last = thread[thread.length - 1]
+        const mine = last.from.address.toLowerCase() === account.email.toLowerCase()
+        if (!mine && looksLikeEcho(final, asTextOf(last), last.from.name)) {
+          log.warn('ai', 'réponse en écho du message reçu : nouvelle tentative')
+          events.emitEvent('ai:tool', { streamId, label: 'La réponse reprenait le message reçu, nouvelle rédaction' })
+          const sysIdx2 = messages.findIndex((m) => m.role === 'system')
+          const stern = `\n\nATTENTION : ta tentative précédente a recopié le message reçu et l’a signé « ${last.from.name || last.from.address} ». C’est interdit. Tu es ${account.name}, tu RÉPONDS à ${last.from.name || last.from.address}. Si le message n’appelle aucune action, réponds en deux phrases maximum (accuser réception, remercier, dire ce que tu fais ou ne fais pas). Ne reprends aucune phrase du message reçu. Ne signe pas.`
+          const retry = await provider.complete({ model: settings.provider.model, temperature: 0.2, messages: messages.map((m, i) => i === sysIdx2 ? { ...m, content: m.content + stern } : m) })
+          const r = cleanReply(restore(retry), account.name, sigText)
+          if (r && !looksLikeEcho(r, asTextOf(last), last.from.name)) final = r
+          else final = `Bonjour,\n\nBien reçu, merci pour votre message.\n\nCordialement,`
+        }
       }
       events.emitEvent('ai:done', { streamId, text: final })
       return final

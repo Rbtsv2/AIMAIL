@@ -1,5 +1,6 @@
 // src/main/ipc/mail.ipc.ts
 import { handle } from './index'
+import { parseQuery, hasFilter } from '@shared/search'
 import { AccountRepo } from '../db/repositories/AccountRepo'
 import { FolderRepo } from '../db/repositories/FolderRepo'
 import { ThreadRepo } from '../db/repositories/ThreadRepo'
@@ -102,6 +103,40 @@ export function registerMailIpc(): void {
     await SyncManager.engine(f.accountId).listFolders()
     events.emitEvent('mail:changed', { accountId: f.accountId })
   })
+  handle('folders:info', (folderId) => {
+    const f = FolderRepo.get(folderId)
+    if (!f) return { total: 0, subfolders: 0 }
+    const total = (getDb().prepare('SELECT COUNT(*) AS n FROM messages WHERE folder_id = ?').get(folderId) as any).n as number
+    const subfolders = FolderRepo.list(f.accountId).filter((x) => x.path.startsWith(f.path + f.delimiter)).length
+    return { total: Math.max(total, f.total), subfolders }
+  })
+  // suppression d'un dossier non vide : son contenu part dans la Corbeille, puis le dossier est supprimé sur le serveur
+  handle('folders:deleteWithContents', async (folderId) => {
+    const f = FolderRepo.get(folderId)
+    if (!f) return { moved: 0 }
+    if (f.role !== 'custom') throw new Error('ce dossier système ne peut pas être supprimé')
+    const engine = SyncManager.engine(f.accountId)
+    const subs = FolderRepo.list(f.accountId).filter((x) => x.path.startsWith(f.path + f.delimiter)).sort((a, b) => b.path.length - a.path.length)
+    const trash = await ensureRoleFolder(f.accountId, 'trash')
+    if (!trash) throw new Error('aucune Corbeille sur ce compte')
+    let moved = 0
+    for (const folder of [...subs, f]) {
+      await engine.syncFolder(folder, { limit: Infinity })
+      const uids = MessageRepo.uidsInFolder(folder.id)
+      if (uids.length) {
+        const uidMap = await engine.move(folder, uids, trash)
+        const ids = uids.map((u) => MessageRepo.byUid(folder.id, u)?.id).filter((x): x is string => !!x)
+        const byId: Record<string, number> = {}; for (const u of uids) { const m = MessageRepo.byUid(folder.id, u); if (m) byId[m.id] = uidMap[u] ?? 0 }
+        MessageRepo.moveToFolder(ids, trash.id, byId)
+        moved += uids.length
+      }
+      await imap(() => engine.deleteMailbox(folder.path))
+    }
+    await engine.listFolders()
+    FolderRepo.recount(trash.id)
+    events.emitEvent('mail:changed', { accountId: f.accountId })
+    return { moved }
+  })
   handle('folders:reorder', (orderedIds) => { FolderRepo.reorder(orderedIds) })
   handle('folders:empty', async (folderId) => {
     const f = FolderRepo.get(folderId)
@@ -136,11 +171,14 @@ export function registerMailIpc(): void {
     events.emitEvent('mail:changed', { accountId: headers[0]?.accountId ?? '', threadIds })
   })
   handle('threads:list', (q) => {
-    if (q.search?.trim()) {
-      const ids = MessageRepo.searchIds(q.accountId, q.search.trim(), 400)
-      return ThreadRepo.list({ accountId: q.accountId, ids: [...new Set(ThreadRepo.threadIdsForMessages(ids))], limit: q.limit, offset: q.offset })
+    const parsed = parseQuery(q.search ?? '')
+    const filter = { ...(q.filter ?? {}), ...parsed.filter }
+    if (parsed.text) {
+      const ids = MessageRepo.searchIds(q.accountId, parsed.text, 400)
+      return ThreadRepo.list({ accountId: q.accountId, ids: [...new Set(ThreadRepo.threadIdsForMessages(ids))], filter, limit: q.limit, offset: q.offset })
     }
-    return ThreadRepo.list({ accountId: q.accountId, folderId: q.folderId, role: q.role, limit: q.limit, offset: q.offset })
+    // opérateurs seuls (de:, pj, …) : recherche dans toute la boîte ou le dossier courant si rien n'est saisi d'autre
+    return ThreadRepo.list({ accountId: q.accountId, folderId: hasFilter(parsed.filter) ? undefined : q.folderId, role: hasFilter(parsed.filter) ? undefined : q.role, filter, limit: q.limit, offset: q.offset })
   })
   handle('threads:messageIds', (threadIds) => threadIds.flatMap((t) => MessageRepo.byThread(t).map((m) => m.id)))
   handle('threads:get', (threadId) => {

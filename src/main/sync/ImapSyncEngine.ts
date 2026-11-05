@@ -22,6 +22,7 @@ import { Classifier } from '../ai/Classifier'
 import { ContactRepo } from '../db/repositories/ContactRepo'
 import { getDb } from '../db'
 import { ensureRoleFolder } from '../ipc/mail.ipc'
+import { applyRules } from './Rules'
 import { AccountRepo } from '../db/repositories/AccountRepo'
 import { SettingsRepo } from '../db/repositories/SettingsRepo'
 
@@ -136,6 +137,10 @@ export class ImapSyncEngine implements SyncEngine {
             } catch (e: any) { log.warn('spam', e?.message) }
           }
         }
+      }
+      // règles de tri de l'utilisateur
+      if (folder.role === 'inbox' && inserted.length) {
+        try { const r = await applyRules(inserted); for (const id of r.moved) { const i = inserted.indexOf(id); if (i >= 0) inserted.splice(i, 1) } } catch (e: any) { log.warn('rules', e?.message ?? e) }
       }
       if (folder.role === 'inbox' && inserted.length) Classifier.enqueueMany(inserted.slice(-30))
       if (inserted.length && SettingsRepo.app().collectAddresses !== false && folder.role !== 'spam' && folder.role !== 'trash') {
@@ -319,8 +324,10 @@ function collectAttachments(bs: any, out: { filename: string; mimeType: string; 
   const isImage = typeof bs.type === 'string' && bs.type.startsWith('image/')
   const hasCid = !!bs.id
   if (disp === 'attachment' || hasCid || (name && bs.type !== 'text/plain' && bs.type !== 'text/html') || (isImage && !bs.childNodes)) {
+    // image incorporée (logo de signature, capture collée) : Content-ID, ou image non déclarée « attachment » → pas une vraie pièce jointe
+    const inline = isImage ? (hasCid || disp !== 'attachment') : (hasCid && disp !== 'attachment')
     out.push({ filename: name ?? (isImage ? 'image' : 'piece-jointe'), mimeType: bs.type ?? 'application/octet-stream', size: bs.size ?? 0,
-      contentId: hasCid ? String(bs.id).replace(/[<>]/g, '') : null, inline: hasCid && disp !== 'attachment', partId: bs.part ?? '1' })
+      contentId: hasCid ? String(bs.id).replace(/[<>]/g, '') : null, inline, partId: bs.part ?? '1' })
   }
   return out
 }

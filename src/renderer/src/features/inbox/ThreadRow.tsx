@@ -1,6 +1,6 @@
 // src/renderer/src/features/inbox/ThreadRow.tsx
 import { memo } from 'react'
-import { Paperclip, Star, Archive, Trash2 } from 'lucide-react'
+import { Paperclip, Star, Archive, Trash2, Reply, Sparkles, BellOff } from 'lucide-react'
 import type { Thread } from '@shared/models/Thread'
 import { relativeDate } from '@/lib/dates'
 import { displayName } from '@/lib/text'
@@ -35,7 +35,7 @@ export const ThreadRow = memo(function ThreadRow({ t, selected, showAccount, onC
         </div>
         <div className="subject">{t.category && <span className={`cat cat-${t.category}`}>{CAT_LABEL[t.category] ?? t.category}</span>}{t.subject || '(sans objet)'}</div>
         <div className="snippet">
-          <span className="badges">{t.starred && <Star size={11} fill="currentColor" style={{ color: 'var(--warm)' }} />}{t.hasAttachments && <Paperclip size={11} />}</span>
+          <span className="badges">{t.starred && <Star size={11} fill="currentColor" style={{ color: 'var(--warm)' }} />}{t.hasAttachments && <Paperclip size={11} />}{t.lastFromMe && <span className="rs rs-sent" title="Dernier message : vous — répondu"><Reply size={10} /></span>}{!t.lastFromMe && (t.replyState === 'ready') && <span className="rs rs-ready" title="Réponse préparée, en attente d’envoi"><Sparkles size={10} /></span>}{!t.lastFromMe && (t.replyState === 'generating' || t.replyState === 'pending') && <span className="rs rs-busy" title="Réponse en cours de rédaction"><Sparkles size={10} /></span>}{!t.lastFromMe && t.replyState === 'dismissed' && <span className="rs rs-off" title="Réponse ignorée (pas de réponse prévue)"><BellOff size={10} /></span>}</span>
           {t.snippet}
         </div>
       </div>

@@ -14,4 +14,5 @@ export interface Folder {
   uidNext: number
   sortOrder: number | null
   noselect: boolean
+  purgeDays: number | null   // rétention : suppression définitive après N jours (null = jamais)
 }

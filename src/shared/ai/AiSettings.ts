@@ -22,6 +22,7 @@ export interface AiSettings {
   mailSearchAccountIds: string[]   // vide = tous les comptes
   globalInstructions: string
   taskInstructions: Partial<Record<AiTask, string>>
+  taskPrompts?: Partial<Record<AiTask | 'memory', string>>   // consignes de base remplacées (vide = défaut)
   replyLanguage: 'auto' | 'fr' | 'en'
   tone: 'neutre' | 'formel' | 'amical' | 'direct'
 }

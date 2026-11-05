@@ -9,13 +9,17 @@ interface UiState {
   sidebarCollapsed: boolean
   paletteOpen: boolean
   settingsOpen: boolean
-  settingsPane: 'general' | 'accounts' | 'signatures' | 'ai' | 'sources' | 'appearance' | 'backup'
+  settingsPane: 'general' | 'accounts' | 'signatures' | 'ai' | 'sources' | 'rules' | 'appearance' | 'backup'
   addAccountOpen: boolean
   contactsOpen: boolean
   calendarOpen: boolean
   toasts: Toast[]
   confirmSend: { draft: Draft; resolve: (ok: boolean) => void } | null
   askConfirmSend(draft: Draft): Promise<boolean>
+  ruleDraft: { accountId: string; from: string; name: string } | null
+  openRuleFor(d: { accountId: string; from: string; name: string }): void
+  confirmReq: { title: string; body?: string; okLabel?: string; cancelLabel?: string; danger?: boolean; resolve: (ok: boolean) => void } | null
+  confirm(o: { title: string; body?: string; okLabel?: string; cancelLabel?: string; danger?: boolean }): Promise<boolean>
   toggleSidebar(): void
   setPalette(v: boolean): void
   openSettings(pane?: UiState['settingsPane']): void
@@ -30,6 +34,10 @@ interface UiState {
 export const useUi = create<UiState>((set, get) => ({
   sidebarCollapsed: false, paletteOpen: false, settingsOpen: false, settingsPane: 'general', addAccountOpen: false, contactsOpen: false, calendarOpen: false, toasts: [],
   confirmSend: null,
+  ruleDraft: null,
+  openRuleFor: (d) => { set({ ruleDraft: d }); get().openSettings('rules') },
+  confirmReq: null,
+  confirm: (o) => new Promise<boolean>((resolve) => set({ confirmReq: { ...o, resolve: (ok) => { set({ confirmReq: null }); resolve(ok) } } })),
   askConfirmSend: (draft) => new Promise<boolean>((resolve) => set({ confirmSend: { draft, resolve: (ok) => { set({ confirmSend: null }); resolve(ok) } } })),
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   setPalette: (v) => set({ paletteOpen: v }),

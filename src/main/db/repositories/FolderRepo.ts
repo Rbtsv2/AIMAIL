@@ -5,7 +5,7 @@ import type { Folder, FolderRole } from '@shared/models/Folder'
 function row(r: any): Folder {
   return {
     id: r.id, accountId: r.account_id, path: r.path, name: r.name, role: r.role, delimiter: r.delimiter,
-    unread: r.unread, total: r.total, uidValidity: r.uid_validity, uidNext: r.uid_next, sortOrder: r.sort_order ?? null, noselect: !!r.noselect
+    unread: r.unread, total: r.total, uidValidity: r.uid_validity, uidNext: r.uid_next, sortOrder: r.sort_order ?? null, noselect: !!r.noselect, purgeDays: r.purge_days ?? null
   }
 }
 
@@ -21,7 +21,7 @@ export const FolderRepo = {
     const r = getDb().prepare('SELECT * FROM folders WHERE account_id = ? AND role = ? LIMIT 1').get(accountId, role)
     return r ? row(r) : undefined
   },
-  upsert(f: Omit<Folder, 'id' | 'unread' | 'total' | 'sortOrder' | 'noselect'> & Partial<Folder>): Folder {
+  upsert(f: Omit<Folder, 'id' | 'unread' | 'total' | 'sortOrder' | 'noselect' | 'purgeDays'> & Partial<Folder>): Folder {
     const db = getDb()
     const existing = db.prepare('SELECT * FROM folders WHERE account_id = ? AND path = ?').get(f.accountId, f.path) as any
     if (existing) {
@@ -34,6 +34,7 @@ export const FolderRepo = {
       .run(fid, f.accountId, f.path, f.name, f.role, f.delimiter, f.uidValidity, f.uidNext, f.noselect ? 1 : 0)
     return this.get(fid)!
   },
+  setPurgeDays(folderId: string, days: number | null): void { getDb().prepare('UPDATE folders SET purge_days = ? WHERE id = ?').run(days, folderId) },
   reorder(orderedIds: string[]): void {
     const stmt = getDb().prepare('UPDATE folders SET sort_order = ? WHERE id = ?')
     orderedIds.forEach((id, i) => stmt.run(i, id))

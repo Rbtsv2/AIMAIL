@@ -34,7 +34,26 @@ export function HtmlEditor({ html, onChange }: { html: string; onChange: (html: 
   }, [])
 
   const doc = () => ref.current?.contentDocument
-  const cmd = (c: string, v?: string) => { const d = doc(); if (!d) return; d.body.focus(); d.execCommand(c, false, v); onChange(d.body.innerHTML); last.current = d.body.innerHTML }
+  // sélection mémorisée avant qu'un contrôle natif (sélecteur de couleur, liste) ne prenne le focus
+  const savedRange = useRef<Range | null>(null)
+  const saveSel = () => { const d = doc(); const sel = d?.getSelection(); if (sel && sel.rangeCount) savedRange.current = sel.getRangeAt(0).cloneRange() }
+  const restoreSel = () => { const d = doc(); const sel = d?.getSelection(); if (d && sel && savedRange.current) { sel.removeAllRanges(); sel.addRange(savedRange.current) } }
+  // couleur en direct : un span posé sur la sélection au premier mouvement, puis mis à jour à chaque mouvement (le focus reste au sélecteur)
+  const colorSpan = useRef<HTMLSpanElement | null>(null)
+  const beginColor = () => { saveSel(); colorSpan.current = null }
+  const applyColor = (color: string) => {
+    const d = doc(); if (!d) return
+    if (!colorSpan.current) {
+      const r = savedRange.current; if (!r || r.collapsed) return
+      const span = d.createElement('span')
+      span.appendChild(r.extractContents()); r.insertNode(span)
+      colorSpan.current = span
+      const nr = d.createRange(); nr.selectNodeContents(span); savedRange.current = nr
+    }
+    colorSpan.current.style.color = color
+    onChange(d.body.innerHTML); last.current = d.body.innerHTML
+  }
+  const cmd = (c: string, v?: string) => { const d = doc(); if (!d) return; d.body.focus(); restoreSel(); try { d.execCommand('styleWithCSS', false, 'true') } catch {} d.execCommand(c, false, v); onChange(d.body.innerHTML); last.current = d.body.innerHTML }
   const link = () => { const d = doc(); if (!d) return; const cur = d.getSelection()?.anchorNode?.parentElement?.closest('a')?.getAttribute('href') ?? 'https://'; const url = prompt('Adresse du lien', cur); if (url === null) return; if (!url) cmd('unlink'); else cmd('createLink', url) }
   const replaceImage = async () => {
     const d = doc(); if (!d) return
@@ -48,15 +67,15 @@ export function HtmlEditor({ html, onChange }: { html: string; onChange: (html: 
   return (
     <div className="html-editor">
       <div className="he-bar">
-        <select className="he-select" defaultValue="" onChange={(e) => { if (e.target.value) cmd('fontName', e.target.value); e.target.value = '' }} title="Police">
+        <select className="he-select" defaultValue="" onPointerDown={saveSel} onChange={(e) => { if (e.target.value) cmd('fontName', e.target.value); e.target.value = '' }} title="Police">
           <option value="">Police</option>
           {['Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Georgia', 'Times New Roman', 'Trebuchet MS', 'Calibri', 'Segoe UI'].map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
         </select>
-        <select className="he-select" defaultValue="" onChange={(e) => { if (e.target.value) cmd('fontSize', e.target.value); e.target.value = '' }} title="Taille">
+        <select className="he-select" defaultValue="" onPointerDown={saveSel} onChange={(e) => { if (e.target.value) cmd('fontSize', e.target.value); e.target.value = '' }} title="Taille">
           <option value="">Taille</option>
           {[['1', 'Très petit'], ['2', 'Petit'], ['3', 'Normal'], ['4', 'Grand'], ['5', 'Très grand'], ['6', 'Titre']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
-        <label className="he-color" title="Couleur du texte"><span style={{ background: 'currentColor' }} /><input type="color" defaultValue="#1d1d1f" onChange={(e) => cmd('foreColor', e.target.value)} /></label>
+        <label className="he-color" title="Couleur du texte : sélectionnez d’abord le texte" onPointerDown={beginColor}><span style={{ background: 'currentColor' }} /><input type="color" defaultValue="#1d1d1f" onFocus={beginColor} onInput={(e) => applyColor((e.target as HTMLInputElement).value)} onChange={(e) => applyColor(e.target.value)} /></label>
         <span className="sep" />
         <button onClick={() => cmd('bold')} title="Gras (⌘B)"><Bold size={14} /></button>
         <button onClick={() => cmd('italic')} title="Italique (⌘I)"><Italic size={14} /></button>

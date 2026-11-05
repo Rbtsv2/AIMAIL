@@ -1,6 +1,9 @@
 // src/shared/ipc.ts
 import type { Account, AccountInput } from './models/Account'
 import type { Folder } from './models/Folder'
+import type { ThreadFilter } from './search'
+import type { AiReply, AiReplyStatus } from './models/AiReply'
+import type { Rule } from './models/Rule'
 import type { Thread } from './models/Thread'
 import type { Message, MessageHeader, Address } from './models/Message'
 import type { Draft, OutboxItem } from './models/Draft'
@@ -22,6 +25,8 @@ export interface AppSettings {
   fullTextIndex: boolean
   confirmSend: boolean
   autoUpdate: boolean
+  fontSize: 'small' | 'normal' | 'large'   // taille des textes de l'interface
+  composeSurface: 'light' | 'theme'       // fond des zones de rédaction (réponse IA, composeur, signature)
   purgeSpamDays: number    // 0 = jamais
   purgeTrashDays: number   // 0 = jamais
 }
@@ -73,10 +78,12 @@ export interface IpcInvoke {
   'folders:rename': (folderId: string, name: string) => Folder
   'folders:move': (folderId: string, newParentFolderId: string | null) => Folder
   'folders:delete': (folderId: string) => void
+  'folders:info': (folderId: string) => { total: number; subfolders: number }
+  'folders:deleteWithContents': (folderId: string) => { moved: number }
   'folders:empty': (folderId: string) => number
   'folders:reorder': (orderedIds: string[]) => void
   'messages:moveToFolder': (ids: string[], folderId: string) => void
-  'threads:list': (q: { accountId?: string; folderId?: string; role?: string; search?: string; limit: number; offset: number }) => Thread[]
+  'threads:list': (q: { accountId?: string; folderId?: string; role?: string; search?: string; filter?: ThreadFilter; limit: number; offset: number }) => Thread[]
   'threads:get': (threadId: string) => { thread: Thread; messages: Message[]; events: ThreadEvent[] }
   'threads:messageIds': (threadIds: string[]) => string[]
   'messages:body': (messageId: string) => Message
@@ -107,6 +114,21 @@ export interface IpcInvoke {
   'update:state': () => UpdateState
   'update:check': () => UpdateState
   'update:install': () => void
+
+  'replies:list': (statuses?: AiReplyStatus[]) => AiReply[]
+  'replies:restore': (messageId: string) => void
+  'replies:counts': () => { ready: number; generating: number }
+  'replies:candidates': (opts?: { accountId?: string; limit?: number; days?: number }) => number
+  'replies:forThread': (threadId: string) => AiReply | null
+  'replies:generate': (opts?: { accountId?: string; limit?: number; days?: number }) => { queued: number }
+  'replies:retry': (messageId: string) => void
+  'replies:stop': () => void
+  'replies:dismiss': (messageId: string) => void
+  'replies:update': (messageId: string, text: string) => void
+  'replies:markSent': (threadId: string) => void
+  'muted:list': () => { address: string; createdAt: number }[]
+  'muted:toggle': (address: string) => boolean   // renvoie l'état après bascule
+  'muted:remove': (address: string) => void
 
   'settings:get': () => AppSettings
   'settings:set': (patch: Partial<AppSettings>) => AppSettings
@@ -154,6 +176,12 @@ export interface IpcInvoke {
   'chats:delete': (id: string) => void
   'chats:pin': (id: string, pinned: boolean) => void
 
+  'rules:list': () => Rule[]
+  'rules:save': (rule: Rule) => Rule
+  'rules:delete': (ruleId: string) => void
+  'rules:reorder': (ids: string[]) => void
+  'rules:run': (opts: { ruleId?: string; accountId?: string; days?: number }) => { touched: number; moved: number }
+  'folders:setRetention': (folderId: string, days: number | null) => void
   'blocked:list': () => { address: string; createdAt: number }[]
   'blocked:add': (addresses: string[]) => void
   'blocked:remove': (address: string) => void
@@ -178,6 +206,7 @@ export interface IpcEvents {
   'ai:refs': { streamId: string; refs: { messageId: string; threadId: string; subject: string; from: string; date: number; account: string }[] }
   'notify': { title: string; body: string; threadId: string }
   'update:state': UpdateState
+  'replies:changed': { ready: number; generating: number }
 }
 
 export type { Account, AccountInput, Folder, Thread, Message, MessageHeader, Draft, OutboxItem, Signature, AiSettings, AiTask, AiModelInfo }

@@ -11,6 +11,7 @@ import { SyncManager } from '../sync/SyncManager'
 import { events } from '../sync/events'
 import { id } from '../db'
 import { log } from '../utils/logger'
+import { AiReplyRepo } from '../db/repositories/AiReplyRepo'
 import { DraftService } from './DraftService'
 import { ContactRepo } from '../db/repositories/ContactRepo'
 
@@ -60,6 +61,7 @@ export const Outbox = {
         try { await SyncManager.engine(account.id).append(sent, raw, ['\\Seen']) } catch (e: any) { log.warn('outbox', 'append sent', e?.message) }
       }
       it.status = 'sent'; publish(it)
+      if (it.draft.threadId) { try { if (AiReplyRepo.markThreadSent(it.draft.threadId)) events.emitEvent('replies:changed', AiReplyRepo.counts()) } catch {} }
       items.delete(outboxId)
       await DraftService.removeRemote(it.draft)
       for (const a of [...it.draft.to, ...it.draft.cc]) { try { if (!ContactRepo.byEmail(a.address)) ContactRepo.save({ accountId: null, firstName: '', lastName: '', displayName: a.name || '', emails: [a.address], phones: [], org: '', title: '', notes: '', source: 'auto', googleId: null, starred: false }) } catch {} }

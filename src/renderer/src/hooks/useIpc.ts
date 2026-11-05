@@ -8,6 +8,8 @@ import { useCompose } from '@/stores/compose.store'
 import { useUi } from '@/stores/ui.store'
 import { useChat } from '@/stores/chat.store'
 import { useUpdate } from '@/stores/update.store'
+import { useReplies } from '@/stores/replies.store'
+import { useMuted } from '@/stores/muted.store'
 
 export function useIpcBridge(): void {
   useEffect(() => {
@@ -27,7 +29,10 @@ export function useIpcBridge(): void {
 
     let announced = ''
     void useUpdate.getState().load()
+    void useReplies.getState().load()
+    void useMuted.getState().load()
     const offs = [
+      on('replies:changed', (c) => useReplies.getState().setCounts(c)),
       on('update:state', (u) => {
         useUpdate.getState().set(u)
         if (u.status === 'ready' && u.version && announced !== u.version) {

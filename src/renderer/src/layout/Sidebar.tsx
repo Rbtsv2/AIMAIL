@@ -7,6 +7,8 @@ import { useAccounts } from '@/stores/accounts.store'
 import { useMail } from '@/stores/mail.store'
 import { useUi } from '@/stores/ui.store'
 import { useChat } from '@/stores/chat.store'
+import { useReplies } from '@/stores/replies.store'
+import { MailCheck } from 'lucide-react'
 import { invoke } from '@/lib/api'
 import { beginDrag, onDrop, setResolver, useDnd, clickSuppressed } from '@/lib/dnd'
 import { TitleBar } from './TitleBar'
@@ -32,7 +34,7 @@ function orderFolders(input: Folder[]): Folder[] {
       const p = parts.slice(0, i).join(f.delimiter)
       if (p === 'INBOX' || paths.has(p)) continue
       paths.add(p)
-      all.push({ id: `virtual:${f.accountId}:${p}`, accountId: f.accountId, path: p, name: parts[i - 1].trim(), role: 'custom', delimiter: f.delimiter, unread: 0, total: 0, uidValidity: 0, uidNext: 0, sortOrder: null, noselect: true })
+      all.push({ id: `virtual:${f.accountId}:${p}`, accountId: f.accountId, path: p, name: parts[i - 1].trim(), role: 'custom', delimiter: f.delimiter, unread: 0, total: 0, uidValidity: 0, uidNext: 0, sortOrder: null, noselect: true, purgeDays: null })
     }
   }
   const system = all.filter((f) => f.role !== 'custom').sort((a, b) => ORDER.indexOf(a.role) - ORDER.indexOf(b.role))
@@ -42,22 +44,56 @@ function orderFolders(input: Folder[]): Folder[] {
   const cmp = (a: Folder, b: Folder) => (a.sortOrder ?? 1e9) - (b.sortOrder ?? 1e9) || leafOf(a).localeCompare(leafOf(b), 'fr')
   const out: Folder[] = []
   const walk = (parent: string) => { for (const f of (byParent.get(parent) ?? []).sort(cmp)) { if (out.includes(f)) continue; out.push(f); walk(f.path) } }
-  // sous-dossiers d'un dossier système (ex. Outlook : Archive/2026) : rattachés juste sous ce dossier
-  const withChildren = (f: Folder): Folder[] => { const before = out.length; walk(f.path); return out.splice(before) }
+  const descendants = (f: Folder): Folder[] => { const before = out.length; walk(f.path); return out.splice(before) }
+  // niveau racine du compte : dossiers système + dossiers personnalisés de premier niveau, ordre libre (sort_order)
+  const root = rootOf(all)
   const spam = system.filter((f) => f.role === 'spam' || f.role === 'trash')
   const head = system.filter((f) => f.role !== 'spam' && f.role !== 'trash')
+  const topCustom = (byParent.get(root) ?? []).sort(cmp)
+  const orphans = custom.filter((f) => parentPathOf(f) !== root && !custom.some((p) => p.path === parentPathOf(f)) && !system.some((p) => p.path === parentPathOf(f)))
+  const defaults = [...head, ...topCustom, ...orphans, ...spam]
+  const free = defaults.some((f) => f.sortOrder !== null && f.sortOrder !== undefined)
+  const rootItems = free ? [...defaults].sort((a, b) => (a.sortOrder ?? 1000 + defaults.indexOf(a)) - (b.sortOrder ?? 1000 + defaults.indexOf(b))) : defaults
   const result: Folder[] = []
-  for (const f of head) { result.push(f); const kids = withChildren(f); result.push(...kids); out.push(...kids) }
-  const root = rootOf(all)
-  const start = out.length
-  walk(root)
-  for (const f of custom) if (!out.includes(f)) out.push(f) // orphelins (parent non sélectionnable)
-  result.push(...out.slice(start))
-  for (const f of spam) { result.push(f); const kids = withChildren(f); result.push(...kids); out.push(...kids) }
+  for (const f of rootItems) { if (result.includes(f)) continue; result.push(f); out.push(f); result.push(...descendants(f)) }
+  for (const f of custom) if (!result.includes(f)) result.push(f)
   return result
 }
 
 type Menu = { x: number; y: number; folder: Folder | null; accountId: string }
+
+// « À répondre » : réponses préparées par l'assistant, en attente d'envoi
+function RepliesEntry() {
+  const ready = useReplies((s) => s.counts.ready)
+  const generating = useReplies((s) => s.counts.generating)
+  const hubOpen = useReplies((s) => s.hubOpen)
+  const selected = useMail((s) => s.selectedId)
+  if (!ready && !generating) return null
+  return (
+    <button className={`sidebar-item no-drag ${hubOpen && !selected ? 'active' : ''}`} style={{ paddingLeft: 8 }} onClick={() => { useReplies.getState().setHub(true); useChat.getState().clear(); void useMail.getState().select(null) }}>
+      <MailCheck size={15} /><span className="label">À répondre</span>
+      {generating > 0 ? <span className="count" style={{ color: 'var(--text-3)' }}>{generating}…</span> : <span className="count" style={{ color: 'var(--accent)' }}>{ready}</span>}
+    </button>
+  )
+}
+
+// Suppression d'un dossier : vide → directe ; avec contenu → confirmation puis contenu déplacé dans la Corbeille
+async function deleteFolderFlow(f: Folder, run: (fn: () => Promise<unknown>, ok: string) => Promise<void>): Promise<void> {
+  if (f.role !== 'custom' || f.id.startsWith('virtual:')) return
+  const info = await invoke('folders:info', f.id)
+  const name = leafOf(f)
+  if (info.total === 0 && info.subfolders === 0) {
+    const ok = await useUi.getState().confirm({ title: `Supprimer le dossier « ${name} » ?`, body: 'Le dossier est vide. Il sera supprimé sur le serveur.', okLabel: 'Supprimer', danger: true })
+    if (ok) await run(() => invoke('folders:delete', f.id), 'Dossier supprimé')
+    return
+  }
+  const parts: string[] = []
+  if (info.total) parts.push(`${info.total} message${info.total > 1 ? 's' : ''}`)
+  if (info.subfolders) parts.push(`${info.subfolders} sous-dossier${info.subfolders > 1 ? 's' : ''}`)
+  const ok = await useUi.getState().confirm({ title: `Supprimer le dossier « ${name} » ?`, body: `Il contient ${parts.join(' et ')}. Les messages seront déplacés dans la Corbeille du compte, puis le dossier${info.subfolders ? ' et ses sous-dossiers seront supprimés' : ' sera supprimé'} sur le serveur.`, okLabel: 'Déplacer dans la Corbeille et supprimer', danger: true })
+  if (!ok) return
+  await run(async () => { const r = await invoke('folders:deleteWithContents', f.id); return r }, `Dossier supprimé, ${info.total} message${info.total > 1 ? 's' : ''} dans la Corbeille`)
+}
 
 function depthOf(f: Folder): number {
   const parts = f.path.split(f.delimiter)
@@ -66,7 +102,9 @@ function depthOf(f: Folder): number {
 }
 const leafOf = (f: Folder) => (f.path.split(f.delimiter).pop() ?? f.name).trim()
 
-function Item({ f, label, count, active, onClick, onContext, onRename, depth = 0, editing, onEditDone, container }: {
+function Item({ f, label, count, active, onClick, onContext, onRename, onDelete, depth = 0, editing, onEditDone, container, index }: {
+  index?: number
+  onDelete?: () => void
   f?: Folder; label: string; count?: number; active: boolean; onClick: () => void; onContext?: (e: React.MouseEvent) => void; onRename?: () => void; depth?: number
   editing?: boolean; onEditDone?: (name: string | null) => void; container?: boolean
 }) {
@@ -78,11 +116,12 @@ function Item({ f, label, count, active, onClick, onContext, onRename, depth = 0
   useEffect(() => { if (editing) { done.current = false; setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select() }, 10) } }, [editing])
   const finish = (v: string | null) => { if (done.current) return; done.current = true; onEditDone?.(v) }
   return (
-    <motion.button layout="position" transition={{ type: 'spring', stiffness: 520, damping: 38, mass: 0.7 }} className={`sidebar-item no-drag ${active ? 'active' : ''} ${over ? 'drop' : ''} ${dragging ? 'lifting' : ''} ${container ? 'container' : ''}`} style={{ paddingLeft: 8 + depth * 14 }}
+    <motion.button layout={settled() ? 'position' : false} initial={settled() ? false : { opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={settled() ? { type: 'spring', stiffness: 520, damping: 38, mass: 0.7 } : { duration: 0.35, delay: Math.min((index ?? 0) * 0.022, 0.5), ease: [0.2, 0.7, 0.2, 1] }} className={`sidebar-item no-drag ${active ? 'active' : ''} ${over ? 'drop' : ''} ${dragging ? 'lifting' : ''} ${container ? 'container' : ''}`} style={{ paddingLeft: 8 + depth * 14 }}
       data-drop-folder={f?.id}
+      onKeyDown={(e) => { if (!editing && (e.key === 'Delete' || (e.key === 'Backspace' && (e.metaKey || e.ctrlKey))) && onDelete) { e.preventDefault(); onDelete() } }}
       onClick={() => { if (!clickSuppressed() && !container) onClick() }} onContextMenu={onContext}
       onDoubleClick={(e) => { if (f?.role === 'custom' && !editing) { e.preventDefault(); onRename?.() } }}
-      onPointerDown={(e) => { if (f && f.role === 'custom' && !editing && !(e.target as HTMLElement).closest('input')) beginDrag(e, { kind: 'folder', id: f.id, label }) }}>
+      onPointerDown={(e) => { if (f && !f.id.startsWith('virtual:') && !editing && !(e.target as HTMLElement).closest('input')) beginDrag(e, { kind: 'folder', id: f.id, label }) }}>
       <Icon size={15} />
       {editing
         ? <input ref={inputRef} className="rename" defaultValue={label} onClick={(e) => e.stopPropagation()}
@@ -97,7 +136,7 @@ function Item({ f, label, count, active, onClick, onContext, onRename, depth = 0
 function AccountHeader({ accountId, color, email, unread, collapsed, onToggle, onCreate }: { accountId: string; color: string; email: string; unread: number; collapsed: boolean; onToggle: () => void; onCreate: () => void }) {
   const lifting = useDnd((s) => s.payload?.kind === 'account' && s.payload.id === accountId)
   return (
-    <div className={`sidebar-account toggle ${collapsed ? 'collapsed' : ''} ${lifting ? 'lifting' : ''}`} data-account={accountId} onClick={() => { if (!clickSuppressed()) onToggle() }} role="button" aria-expanded={!collapsed}
+    <div className={`sidebar-account toggle ${collapsed ? 'collapsed' : ''} ${lifting ? 'lifting' : ''}`} data-account={accountId} data-account-header={accountId} onClick={() => { if (!clickSuppressed()) onToggle() }} role="button" aria-expanded={!collapsed}
       onPointerDown={(e) => { if (!(e.target as HTMLElement).closest('button')) beginDrag(e, { kind: 'account', id: accountId, label: email }) }}>
       <ChevronRight size={12} className="chev" />
       <span className="dot" style={{ background: color }} />
@@ -109,6 +148,9 @@ function AccountHeader({ accountId, color, email, unread, collapsed, onToggle, o
 }
 
 const INDENT = 14
+// pendant la première seconde, pas d'animation de repositionnement : les éléments apparaissent en fondu progressif
+let settledAt = 0
+const settled = () => { if (!settledAt) settledAt = Date.now() + 900; return Date.now() > settledAt }
 
 // réordonnancement des comptes : ligne d'insertion entre les en-têtes
 function resolveAccountDrop(y: number, draggedId: string): { hover: string | null; line: { top: number; left: number; width: number } | null } | null {
@@ -131,23 +173,34 @@ function resolveFolderDrop(x: number, y: number, draggedId: string): { hover: st
   const all = Object.values(useAccounts.getState().folders).flat()
   const byId = new Map(all.map((f) => [f.id, f]))
   const dragged = byId.get(draggedId)
-  const inSubtree = (f: Folder) => !!dragged && (f.id === dragged.id || f.path.startsWith(dragged.path + dragged.delimiter))
-  const rows = [...document.querySelectorAll<HTMLElement>('.sidebar [data-drop-folder]')].map((el) => ({ el, f: byId.get(el.dataset.dropFolder ?? ''), r: el.getBoundingClientRect() })).filter((r) => r.f && !inSubtree(r.f) && !r.f.id.startsWith('virtual:'))
+  // descendance interdite comme cible : seulement pour un dossier personnalisé (« INBOX » est le préfixe de tout chez OVH)
+  const inSubtree = (f: Folder) => !!dragged && (f.id === dragged.id || (dragged.role === 'custom' && f.path.startsWith(dragged.path + dragged.delimiter)))
+  const rows = [...document.querySelectorAll<HTMLElement>('.sidebar [data-drop-folder]')].map((el) => ({ el, f: byId.get(el.dataset.dropFolder ?? ''), r: el.getBoundingClientRect() })).filter((r) => r.f && r.r.height > 0 && !inSubtree(r.f) && !r.f.id.startsWith('virtual:'))  // lignes masquées (comptes repliés) exclues
   const row = rows.find((r) => y >= r.r.top && y <= r.r.bottom)
   const side = document.querySelector('.sidebar-scroll')?.getBoundingClientRect()
   if (!row) {
+    if (!side || x < side.left || x > side.right) return { hover: null, line: null }
+    // sur l'en-tête d'un compte : en tête de ce compte (si ses dossiers sont visibles)
+    const header = [...document.querySelectorAll<HTMLElement>('.sidebar [data-account-header]')].find((el) => { const r = el.getBoundingClientRect(); return y >= r.top && y <= r.bottom })
+    if (header) {
+      const accId = header.dataset.accountHeader ?? ''
+      const first = rows.find((r) => r.f!.accountId === accId)
+      if (!first) return { hover: null, line: null }
+      return { hover: `parent:${accId}::${first.f!.id}:before`, line: { top: first.r.top - 1, left: first.r.left + 8, width: first.r.width - 16 } }
+    }
     // sous le dernier dossier d'un compte : racine de ce compte
     const last = [...rows].reverse().find((r) => r.r.bottom <= y)
-    if (!last || !side || x < side.left || x > side.right) return { hover: null, line: null }
+    if (!last) return { hover: null, line: null }
     return { hover: `parent:${last.f!.accountId}::${last.f!.id}:after`, line: { top: last.r.bottom - 1, left: last.r.left + 8, width: last.r.width - 16 } }
   }
   const f = row.f!
   const zone = (y - row.r.top) / row.r.height
-  if (zone > 0.3 && zone < 0.7 && f.role === 'custom' && !f.noselect) return { hover: f.id, line: null }
+  if (zone > 0.3 && zone < 0.7 && !f.noselect && !f.id.startsWith('virtual:') && dragged?.role === 'custom') return { hover: f.id, line: null }
   // insertion entre deux lignes : le parent dépend de la position horizontale
   const above = zone <= 0.3 ? rows[rows.indexOf(row) - 1] : row
   const ref = above && above.f!.accountId === f.accountId ? above.f! : null
-  const maxDepth = ref && ref.role === 'custom' ? depthOf(ref) + 1 : 0
+  // un dossier système ne se réordonne qu'à la racine ; un dossier personnalisé peut s'imbriquer sous n'importe quel dossier
+  const maxDepth = ref && dragged?.role === 'custom' ? depthOf(ref) + 1 : 0
   const depth = Math.max(0, Math.min(maxDepth, Math.round((x - row.r.left - 8) / INDENT)))
   let parentId = ''
   if (ref && depth > 0) {
@@ -196,11 +249,12 @@ export function Sidebar() {
           const parent = parentId ? all.find((f) => f.id === parentId) : undefined
           const curParent = parentPathOf(dragged)
           const newParentPath = parent ? parent.path : rootOf(all)
-          if (newParentPath !== curParent) await invoke('folders:move', payload.id, parentId)
+          if (dragged.role === 'custom' && newParentPath !== curParent) await invoke('folders:move', payload.id, parentId)
           // ordre des frères sous le nouveau parent
           const fresh = await invoke('folders:list', accountId)
           const me = fresh.find((f) => f.id === payload.id)!
-          const siblings = orderFolders(fresh.filter((f) => f.role === 'custom' && parentPathOf(f) === parentPathOf(me) && f.id !== me.id))
+          const atRoot = !parentId
+          const siblings = orderFolders(fresh.filter((f) => f.id !== me.id && (atRoot ? (f.role !== 'custom' || parentPathOf(f) === rootOf(fresh)) : (f.role === 'custom' && parentPathOf(f) === parent!.path)))).filter((f) => atRoot ? (f.role !== 'custom' || parentPathOf(f) === rootOf(fresh)) : true)
           const ref = siblings.find((f) => f.id === refId)
           let at = siblings.length
           if (ref) at = siblings.indexOf(ref) + (side === 'after' ? 1 : 0)
@@ -244,7 +298,11 @@ export function Sidebar() {
   }
 
   const unifiedCount = (role: string) => Object.values(folders).flat().filter((f) => f.role === role).reduce((n, f) => n + f.unread, 0)
-  const isUnified = (role: string) => !view.accountId && view.role === role
+  // le hub « À répondre » ouvert (sans message sélectionné) est la vue active : aucun dossier ne reste surligné
+  const hubOpenWithItems = useReplies((s) => s.hubOpen && (s.counts.ready > 0 || s.counts.generating > 0))
+  const selectedThread = useMail((s) => s.selectedId)
+  const hubActive = hubOpenWithItems && !selectedThread
+  const isUnified = (role: string) => !hubActive && !view.accountId && view.role === role
 
   return (
     <aside className="sidebar" style={{ position: 'relative' }}>
@@ -253,15 +311,16 @@ export function Sidebar() {
         {accounts.length > 1 && (
           <div className="sidebar-section">
             <div className="sidebar-account">Toutes les boîtes</div>
-            {(['inbox', 'starred', 'sent', 'drafts', 'archive'] as const).map((r) => (
-              <Item key={r} label={ROLE_LABEL[r]} count={r === 'inbox' ? unifiedCount(r) : undefined} active={isUnified(r)} onClick={() => setView({ role: r, label: ROLE_LABEL[r] })} />
+            <RepliesEntry />
+            {(['inbox', 'starred', 'sent', 'drafts', 'archive'] as const).map((r, i) => (
+              <Item key={r} index={i} label={ROLE_LABEL[r]} count={r === 'inbox' ? unifiedCount(r) : undefined} active={isUnified(r)} onClick={() => { useReplies.getState().setHub(false); setView({ role: r, label: ROLE_LABEL[r] }) }} />
             ))}
           </div>
         )}
-        {accounts.map((a) => {
+        {accounts.map((a, ai) => {
           const fs = orderFolders((folders[a.id] ?? []).filter((f) => f.role !== 'all'))
           return (
-            <div className="sidebar-section" key={a.id} onContextMenu={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, folder: null, accountId: a.id }) } }}>
+            <motion.div className="sidebar-section" key={a.id} initial={settled() ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4, delay: Math.min(0.08 + ai * 0.06, 0.5) }} onContextMenu={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, folder: null, accountId: a.id }) } }}>
               <AccountHeader accountId={a.id} color={a.color} email={a.email} unread={fs.find((f) => f.role === 'inbox')?.unread ?? 0} collapsed={collapsed.has(a.id)} onToggle={() => toggleAccount(a.id)} onCreate={() => { setCollapsed((p) => { const n = new Set(p); n.delete(a.id); return n }); setCreating({ accountId: a.id, parentId: null }) }} />
               <div className={`sidebar-folders ${collapsed.has(a.id) && creating?.accountId !== a.id ? 'hidden' : ''}`}>
               {(() => {
@@ -283,11 +342,11 @@ export function Sidebar() {
                       onBlur={() => setCreating(null)} />
                   </div>
                 ) : null
-                const items = fs.map((f) => (
-                  <Item key={f.id} f={f} depth={f.role === 'custom' ? depthOf(f) : 0} label={f.role === 'custom' ? leafOf(f) : ROLE_LABEL[f.role]} container={f.noselect}
+                const items = fs.map((f, i) => (
+                  <Item key={f.id} index={5 + ai * 3 + i} onDelete={() => void deleteFolderFlow(f, run)} f={f} depth={f.role === 'custom' ? depthOf(f) : 0} label={f.role === 'custom' ? leafOf(f) : ROLE_LABEL[f.role]} container={f.noselect}
                     count={!f.noselect && (f.role === 'inbox' || f.role === 'custom') ? f.unread : undefined}
-                    active={view.folderId === f.id}
-                    onClick={() => setView({ accountId: a.id, folderId: f.id, label: f.role === 'custom' ? leafOf(f) : ROLE_LABEL[f.role] })}
+                    active={!hubActive && view.folderId === f.id}
+                    onClick={() => { useReplies.getState().setHub(false); setView({ accountId: a.id, folderId: f.id, label: f.role === 'custom' ? leafOf(f) : ROLE_LABEL[f.role] }) }}
                     onContext={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, folder: f, accountId: a.id }) }}
                     editing={editing === f.id}
                     onEditDone={(name) => { setEditing(null); const v = name?.trim(); if (v && v !== leafOf(f)) void run(() => invoke('folders:rename', f.id, v), 'Dossier renommé') }}
@@ -297,7 +356,7 @@ export function Sidebar() {
                 return <div><AnimatePresence initial={false}>{items}</AnimatePresence></div>
               })()}
               </div>
-            </div>
+            </motion.div>
           )
         })}
       </div>
@@ -333,7 +392,7 @@ export function Sidebar() {
             <button onClick={() => { setMenu(null); setEditing(menu.folder!.id) }}><Pencil size={14} /> Renommer</button>
             {depthOf(menu.folder) > 0 && <button onClick={() => { setMenu(null); void run(() => invoke('folders:move', menu.folder!.id, null), 'Dossier déplacé à la racine') }}><CornerLeftUp size={14} /> Déplacer à la racine</button>}
             <div className="sep" />
-            <button className="danger" onClick={() => { setMenu(null); if (confirm(`Supprimer le dossier « ${leafOf(menu.folder!)} » et son contenu sur le serveur ?`)) void run(() => invoke('folders:delete', menu.folder!.id), 'Dossier supprimé') }}><Trash2 size={14} /> Supprimer</button>
+            <button className="danger" onClick={() => { setMenu(null); void deleteFolderFlow(menu.folder!, run) }}><Trash2 size={14} /> Supprimer</button>
           </>}
         </div>
       )}

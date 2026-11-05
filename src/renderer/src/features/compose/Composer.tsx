@@ -5,6 +5,8 @@ import type { Editor as TiptapEditor } from '@tiptap/react'
 import { useCompose, isComposeWindow } from '@/stores/compose.store'
 import { useAccounts } from '@/stores/accounts.store'
 import { useAi } from '@/stores/ai.store'
+import { useSettings } from '@/stores/settings.store'
+import { SigFrame } from '@/design-system/SigFrame'
 import { Sheet } from '@/design-system/Sheet'
 import { RecipientInput } from './RecipientInput'
 import { SignaturePicker } from './SignaturePicker'
@@ -28,6 +30,14 @@ export function Composer() {
   const [aiPrompt, setAiPrompt] = useState('')
   const [aiOpen, setAiOpen] = useState(false)
   const [editor, setEditor] = useState<TiptapEditor | null>(null)
+  // corps (éditable) / message cité (lecture) séparés au marqueur de citation ; la signature s'affiche entre les deux, comme à l'envoi
+  const QUOTE_MARK = '<div style="color:#6e6e73'
+  const qi = draft ? draft.html.indexOf(QUOTE_MARK) : -1
+  const bodyHtml = draft ? (qi >= 0 ? draft.html.slice(0, qi) : draft.html) : ''
+  const quoteHtml = draft && qi >= 0 ? draft.html.slice(qi) : ''
+  const [showQuote, setShowQuote] = useState(false)
+  const signatures = useSettings((s) => s.signatures)
+  const sigHtml = draft?.signatureId ? (signatures.find((x) => x.id === draft.signatureId)?.html ?? '') : ''
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const aiShown = useSmoothText(ai.output, ai.streaming)
   useAutosave()
@@ -71,7 +81,16 @@ export function Composer() {
               {!showCc && !draft.cc.length && <button className="btn quiet" style={{ height: 24, color: 'var(--text-2)' }} onClick={() => setShowCc(true)}>Cc / Cci</button>}
             </div>
           </div>
-          <Editor html={draft.html} onChange={(html, text) => update({ html, text })} onSelection={setSelection} onReady={setEditor} />
+          <div className="compose-scroll">
+          <Editor html={bodyHtml} onChange={(html, text) => update({ html: html + quoteHtml, text })} onSelection={setSelection} onReady={setEditor} />
+          {sigHtml && <div className="compose-sig"><SigFrame html={sigHtml} className="compose-sig-frame" /></div>}
+          {quoteHtml && (
+            <div className="compose-quote">
+              <button className="btn quiet compose-quote-toggle" onClick={() => setShowQuote(!showQuote)}>{showQuote ? 'Masquer le message cité' : 'Afficher le message cité'}</button>
+              {showQuote && <div className="compose-quote-body" dangerouslySetInnerHTML={{ __html: quoteHtml }} />}
+            </div>
+          )}
+          </div>
           {draft.attachmentPaths.length > 0 && (
             <div className="msg-atts" style={{ padding: '8px 20px 0' }}>
               {draft.attachmentPaths.map((p) => <span key={p} className="att"><Paperclip size={13} /><span className="n">{p.split(/[\\/]/).pop()}</span><button className="icon-btn" style={{ width: 20, height: 20 }} onClick={() => update({ attachmentPaths: draft.attachmentPaths.filter((x) => x !== p) })}><X size={12} /></button></span>)}

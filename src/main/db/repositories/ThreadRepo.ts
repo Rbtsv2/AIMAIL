@@ -1,19 +1,26 @@
 // src/main/db/repositories/ThreadRepo.ts
 import { getDb, j, p } from '../index'
+import type { ThreadFilter } from '@shared/search'
 import type { Thread } from '@shared/models/Thread'
 import type { Address } from '@shared/models/Message'
 
+let OWN = new Set<string>()
+export function setOwnAddresses(addrs: string[]): void { OWN = new Set(addrs.map((a) => a.toLowerCase())) }
+
 function row(r: any): Thread {
+  const lastFrom = p<Address | null>(r.last_from_json, null)
   return {
     id: r.id, accountId: r.account_id, subject: r.subject, snippet: r.snippet,
     participants: p<Address[]>(r.participants_json, []), lastDate: r.last_date, messageCount: r.message_count,
     unread: !!r.unread, starred: !!r.starred, hasAttachments: !!r.has_attachments,
     folderIds: p<string[]>(r.folder_ids ? `[${r.folder_ids.split(',').map((s: string) => JSON.stringify(s)).join(',')}]` : null, []),
-    category: r.category ?? null
+    category: r.category ?? null,
+    lastFromMe: !!lastFrom && OWN.has((lastFrom.address ?? '').toLowerCase()),
+    replyState: r.reply_state ?? null
   }
 }
 
-const BASE = `SELECT t.*, (SELECT GROUP_CONCAT(DISTINCT folder_id) FROM messages WHERE thread_id = t.id) folder_ids, (SELECT category FROM messages WHERE thread_id = t.id AND category IS NOT NULL ORDER BY date DESC LIMIT 1) category FROM threads t`
+const BASE = `SELECT t.*, (SELECT GROUP_CONCAT(DISTINCT folder_id) FROM messages WHERE thread_id = t.id) folder_ids, (SELECT category FROM messages WHERE thread_id = t.id AND category IS NOT NULL ORDER BY date DESC LIMIT 1) category, (SELECT from_json FROM messages WHERE thread_id = t.id ORDER BY date DESC LIMIT 1) last_from_json, (SELECT status FROM ai_replies r WHERE r.thread_id = t.id ORDER BY r.updated_at DESC LIMIT 1) reply_state FROM threads t`
 
 export const ThreadRepo = {
   get(threadId: string): Thread | undefined {
@@ -38,10 +45,20 @@ export const ThreadRepo = {
     db.prepare(`UPDATE threads SET snippet=?, subject=?, participants_json=?, last_date=?, message_count=?, unread=?, starred=?, has_attachments=? WHERE id=?`)
       .run(last.snippet, last.subject, j(participants), agg.d, agg.c, agg.u ?? 0, agg.s ?? 0, agg.a ?? 0, threadId)
   },
-  list(q: { accountId?: string; folderId?: string; role?: string; ids?: string[]; limit: number; offset: number }): Thread[] {
+  list(q: { accountId?: string; folderId?: string; role?: string; ids?: string[]; filter?: ThreadFilter; limit: number; offset: number }): Thread[] {
     const db = getDb()
     const where: string[] = []
     const args: unknown[] = []
+    const f = q.filter ?? {}
+    if (f.unread) where.push('t.unread > 0')
+    if (f.starred) where.push('t.starred = 1')
+    if (f.attachments) where.push('t.has_attachments = 1')
+    if (f.after) { where.push('t.last_date >= ?'); args.push(f.after) }
+    if (f.before) { where.push('t.last_date <= ?'); args.push(f.before) }
+    if (f.category) { where.push('EXISTS (SELECT 1 FROM messages m WHERE m.thread_id = t.id AND m.category = ?)'); args.push(f.category) }
+    if (f.from) { where.push('EXISTS (SELECT 1 FROM messages m WHERE m.thread_id = t.id AND lower(m.from_json) LIKE ?)'); args.push(`%${f.from.toLowerCase()}%`) }
+    if (f.to) { where.push('EXISTS (SELECT 1 FROM messages m WHERE m.thread_id = t.id AND (lower(m.to_json) LIKE ? OR lower(m.cc_json) LIKE ?))'); args.push(`%${f.to.toLowerCase()}%`, `%${f.to.toLowerCase()}%`) }
+    if (f.subject) { where.push('EXISTS (SELECT 1 FROM messages m WHERE m.thread_id = t.id AND lower(m.subject) LIKE ?)'); args.push(`%${f.subject.toLowerCase()}%`) }
     if (q.accountId) { where.push('t.account_id = ?'); args.push(q.accountId) }
     if (q.ids) {
       if (!q.ids.length) return []

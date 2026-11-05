@@ -1,5 +1,5 @@
 // src/renderer/src/features/settings/SettingsSheet.tsx
-import { Sliders, UserCircle, PenTool, Sparkles, Palette, Database, HardDriveDownload, X } from 'lucide-react'
+import { Sliders, UserCircle, PenTool, Sparkles, Palette, Database, HardDriveDownload, X, ListFilter } from 'lucide-react'
 import { useUi } from '@/stores/ui.store'
 import { IconButton } from '@/design-system/IconButton'
 import { GeneralPane } from './GeneralPane'
@@ -9,6 +9,7 @@ import { AiPane } from './AiPane'
 import { AppearancePane } from './AppearancePane'
 import { SourcesPane } from './SourcesPane'
 import { BackupPane } from './BackupPane'
+import { RulesPane } from './RulesPane'
 
 const NAV = [
   { id: 'general', label: 'Général', icon: Sliders, el: GeneralPane },
@@ -16,6 +17,7 @@ const NAV = [
   { id: 'signatures', label: 'Signatures', icon: PenTool, el: SignaturesPane },
   { id: 'ai', label: 'Assistant', icon: Sparkles, el: AiPane },
   { id: 'sources', label: 'Sources', icon: Database, el: SourcesPane },
+  { id: 'rules', label: 'Règles', icon: ListFilter, el: RulesPane },
   { id: 'appearance', label: 'Apparence', icon: Palette, el: AppearancePane },
   { id: 'backup', label: 'Sauvegarde & import', icon: HardDriveDownload, el: BackupPane }
 ] as const

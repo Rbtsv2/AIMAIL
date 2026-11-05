@@ -20,6 +20,8 @@ export function useHotkeys(): void {
       if (mod && e.key === ',') { e.preventDefault(); useUi.getState().openSettings(); return }
       if (mod && e.key === '\\') { e.preventDefault(); useUi.getState().toggleSidebar(); return }
       if (inField(e)) return
+      // un dossier de la barre latérale a le focus : Suppr/Retour arrière s'appliquent au dossier, pas au message
+      if ((e.key === 'Delete' || e.key === 'Backspace') && (e.target as HTMLElement | null)?.closest?.('.sidebar')) return
       if (mod && e.key.toLowerCase() !== 'a') return
       const m = useMail.getState()
       const cur = m.current

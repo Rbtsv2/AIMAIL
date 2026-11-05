@@ -1,5 +1,6 @@
 // src/renderer/src/stores/mail.store.ts
 import { create } from 'zustand'
+import type { ThreadFilter } from '@shared/search'
 import type { Thread } from '@shared/models/Thread'
 import type { Message } from '@shared/models/Message'
 import type { ThreadEvent } from '@shared/ipc'
@@ -13,6 +14,10 @@ interface S {
   search: string
   threads: Thread[]
   loading: boolean
+  viewKey: string          // clé de la vue dont « threads » est le résultat (évite le squelette à chaque resynchro)
+  filter: ThreadFilter
+  setFilter(patch: Partial<ThreadFilter>): void
+  clearFilter(): void
   hasMore: boolean
   selectedId: string | null
   selection: string[]
@@ -38,20 +43,27 @@ interface S {
 const PAGE = 60
 
 export const useMail = create<S>((set, get) => ({
-  view: { role: 'inbox', label: 'Réception' }, search: '', threads: [], loading: false, hasMore: true, selectedId: null, selection: [], anchorId: null, current: null,
+  view: { role: 'inbox', label: 'Réception' }, search: '', threads: [], loading: false, viewKey: '', filter: {}, hasMore: true, selectedId: null, selection: [], anchorId: null, current: null,
   setView: (view) => { useUi.getState().closeSettings(); useUi.getState().setAddAccount(false); useUi.getState().setContacts(false); useUi.getState().setCalendar(false); set({ view, search: '', selectedId: null, selection: [], anchorId: null, current: null }); void get().refresh() },
   setSearch: (search) => { set({ search }); void get().refresh() },
+  setFilter: (patch) => { const f = { ...get().filter, ...patch }; for (const k of Object.keys(f) as (keyof ThreadFilter)[]) if (f[k] === undefined || f[k] === false || f[k] === '') delete f[k]; set({ filter: f }); void get().refresh() },
+  clearFilter: () => { set({ filter: {} }); void get().refresh() },
   refresh: async () => {
-    const { view, search } = get()
-    if (!get().threads.length) set({ loading: true })
-    const threads = await invoke('threads:list', { accountId: view.accountId, folderId: view.folderId, role: view.role, search, limit: PAGE, offset: 0 })
-    set({ threads, loading: false, hasMore: threads.length === PAGE })
+    const { view, search, filter } = get()
+    const key = `${view.accountId ?? ''}|${view.folderId ?? ''}|${view.role ?? ''}|${search}|${JSON.stringify(filter)}`
+    // squelette uniquement au premier chargement d'une vue ; une resynchro en arrière-plan ne fait pas clignoter « Rien ici »
+    if (get().viewKey !== key) set({ loading: true, threads: [] })
+    const threads = await invoke('threads:list', { accountId: view.accountId, folderId: view.folderId, role: view.role, search, filter, limit: PAGE, offset: 0 })
+    const cur = get()
+    const curKey = `${cur.view.accountId ?? ''}|${cur.view.folderId ?? ''}|${cur.view.role ?? ''}|${cur.search}|${JSON.stringify(cur.filter)}`
+    if (curKey !== key) return   // la vue a changé entre-temps : résultat obsolète
+    set({ threads, loading: false, viewKey: key, hasMore: threads.length === PAGE })
   },
   loadMore: async () => {
-    const { view, search, threads, hasMore, loading } = get()
+    const { view, search, filter, threads, hasMore, loading } = get()
     if (!hasMore || loading) return
     set({ loading: true })
-    const more = await invoke('threads:list', { accountId: view.accountId, folderId: view.folderId, role: view.role, search, limit: PAGE, offset: threads.length })
+    const more = await invoke('threads:list', { accountId: view.accountId, folderId: view.folderId, role: view.role, search, filter, limit: PAGE, offset: threads.length })
     set({ threads: [...threads, ...more], loading: false, hasMore: more.length === PAGE })
   },
   select: async (id) => {

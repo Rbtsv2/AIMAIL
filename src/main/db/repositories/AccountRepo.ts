@@ -1,4 +1,5 @@
 // src/main/db/repositories/AccountRepo.ts
+import { setOwnAddresses } from './ThreadRepo'
 import { getDb, j, p, id } from '../index'
 import type { Account, AccountInput } from '@shared/models/Account'
 
@@ -16,6 +17,11 @@ function row(r: any): Account {
 
 export const AccountRepo = {
   list(): Account[] {
+    const out = this._list()
+    setOwnAddresses(out.map((a) => a.email))
+    return out
+  },
+  _list(): Account[] {
     return getDb().prepare('SELECT * FROM accounts ORDER BY COALESCE(sort_order, 1000000), created_at').all().map(row)
   },
   get(accountId: string): Account | undefined {

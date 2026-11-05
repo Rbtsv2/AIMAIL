@@ -16,12 +16,14 @@ import { invoke } from '@/lib/api'
 import { DragGhost, DropIndicator } from '@/lib/dnd'
 import { EventEditor } from '@/features/calendar/EventEditor'
 import { ConfirmSend } from '@/design-system/ConfirmSend'
+import { ConfirmDialog } from '@/design-system/Confirm'
 import { useCalendar } from '@/stores/calendar.store'
 import { DragStrip } from '@/layout/DragStrip'
 import { WindowControls } from '@/layout/WindowControls'
 
 function ComposeApp({ draftId }: { draftId: string }) {
   useIpcBridge(); useTheme()
+  useEffect(() => { document.documentElement.dataset.platform = window.api.platform }, [])
   useEffect(() => {
     void Promise.all([useAccounts.getState().load(), useSettings.getState().load(), useAi.getState().load()]).then(async () => {
       const d = (await invoke('drafts:list')).find((x) => x.id === draftId)
@@ -49,6 +51,7 @@ export default function App() {
       <Composer />
       <EventEditor />
       <ConfirmSend />
+      <ConfirmDialog />
       <CommandPalette />
       <Toasts />
       <DropIndicator />

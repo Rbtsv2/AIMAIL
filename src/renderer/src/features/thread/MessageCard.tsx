@@ -14,6 +14,8 @@ import { useCompose } from '@/stores/compose.store'
 import { useMail } from '@/stores/mail.store'
 import { useSettings } from '@/stores/settings.store'
 import { useUi } from '@/stores/ui.store'
+import { useMuted } from '@/stores/muted.store'
+import { BellOff, Sparkles } from 'lucide-react'
 import type { Address } from '@shared/models/Message'
 
 const copyAddr = async (e: React.MouseEvent, a: Address) => {
@@ -23,6 +25,18 @@ const copyAddr = async (e: React.MouseEvent, a: Address) => {
 }
 
 const bodyCache = new Map<string, Message>()
+
+// Interrupteur « réponses de l'assistant » pour cet expéditeur
+function MuteSwitch({ address }: { address: string }) {
+  const muted = useMuted((s) => s.addresses.has(address.toLowerCase()))
+  return (
+    <button className={`mute-switch ${muted ? 'off' : 'on'}`} title={muted ? 'L’assistant ne prépare pas de réponse pour cet expéditeur — cliquer pour réactiver' : 'L’assistant prépare des réponses pour cet expéditeur — cliquer pour désactiver'}
+      onClick={async (e) => { e.stopPropagation(); const on = await useMuted.getState().toggle(address); useUi.getState().toast({ text: on ? `Plus de réponse préparée pour ${address}` : `Réponses préparées réactivées pour ${address}` }) }}>
+      <span className="knob" />
+      {muted ? <BellOff size={10} /> : <Sparkles size={10} />}
+    </button>
+  )
+}
 
 export function MessageCard({ m, threadId, expandedByDefault }: { m: Message; threadId: string; expandedByDefault: boolean }) {
   const [open, setOpen] = useState(expandedByDefault)
@@ -44,7 +58,7 @@ export function MessageCard({ m, threadId, expandedByDefault }: { m: Message; th
       <button className="msg-head" onClick={() => setOpen((o) => !o)}>
         <Avatar who={m.from} />
         <div className="who">
-          <span className="name">{displayName(m.from)}<span className="addr copy" title="Copier l’adresse" onClick={(e) => void copyAddr(e, m.from)}>{m.from.address}</span></span>
+          <span className="name">{displayName(m.from)}<span className="addr copy" title="Copier l’adresse" onClick={(e) => void copyAddr(e, m.from)}>{m.from.address}</span><MuteSwitch address={m.from.address} /></span>
           <span className="meta">{open
             ? <>à {[...m.to, ...m.cc].length ? [...m.to, ...m.cc].map((a, i) => <span key={`${a.address}-${i}`}><span className="copy" title={`Copier ${a.address}`} onClick={(e) => void copyAddr(e, a)}>{displayName(a)}</span>{i < m.to.length + m.cc.length - 1 ? ', ' : ''}</span>) : 'moi'}</>
             : msg.snippet}</span>

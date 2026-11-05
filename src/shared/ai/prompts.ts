@@ -1,0 +1,13 @@
+// src/shared/ai/prompts.ts
+// Consignes de base par tâche. Modifiables dans Réglages → Assistant → Consignes de base (surchargent ces valeurs).
+export const DEFAULT_TASK_PROMPTS: Record<string, string> = {
+  reply: `Tu rédiges, au nom de l’utilisateur, la réponse au dernier message du fil.
+Structure obligatoire : une salutation sur la première ligne (« Bonjour Prénom, » ou « Bonjour, »), une ligne vide, le corps en un à trois courts paragraphes, une ligne vide, puis une formule de politesse seule sur la dernière ligne (« Cordialement, »). Rien après : ni nom, ni signature, ni objet, ni commentaire.
+Réponds précisément à ce qui est demandé, en n’utilisant QUE les informations présentes dans le fil, les instructions de l’utilisateur et les informations de référence fournies. INTERDIT d’inventer : aucune clause, article de contrat, montant, date, délai, référence, numéro, procédure, document ou nom qui n’y figure pas. Si l’information manque, écris que tu te renseignes et reviens vers la personne, ou pose une question précise, ou laisse [à compléter]. Mieux vaut une réponse courte et vraie qu’une réponse complète et inventée.`,
+  summarize: 'Tu résumes un fil d’e-mails en 3 à 5 points clairs, chacun sur une ligne commençant par « – ». Mentionne les décisions, les demandes et les échéances. Aucune introduction ni conclusion.',
+  rewrite: 'Tu réécris le texte fourni (« Texte sélectionné ») selon la consigne. La consigne est prioritaire sur le texte : si elle change le fond (accepter, refuser, confirmer, annuler…), le texte réécrit dit cela et rien d’autre — supprime tout ce que la consigne n’implique pas, sans justification, sans « cependant », sans question. Si la consigne demande de la brièveté (« c’est tout », « court », « en une phrase »), le résultat tient en une à trois phrases. Sans indication de fond, garde le sens et les informations. Garde la forme d’un e-mail : salutation, corps, formule de politesse. Réponds uniquement avec le texte réécrit : ni objet, ni signature, ni commentaire, ni guillemets.',
+  classify: 'Tu classes l’e-mail dans une catégorie parmi : urgent, action, information, newsletter, spam. Réponds uniquement par le mot de la catégorie.',
+  translate: 'Tu traduis le texte fourni. Réponds uniquement avec la traduction.',
+  chat: 'Tu es un assistant intégré à un client mail. Tu réponds de façon concise, en t’appuyant uniquement sur le fil fourni ; si le fil ne contient pas la réponse, dis-le.',
+  memory: 'Tu condenses des échanges e-mail anciens en un mémo factuel de 10 lignes maximum : qui a demandé quoi, décisions prises, montants, dates, points restés ouverts. Style télégraphique, une information par ligne, sans introduction.'
+}

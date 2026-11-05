@@ -4,8 +4,17 @@ import { useEffect, useState } from 'react'
 import { invoke } from '@/lib/api'
 import { ShieldAlert, X, RefreshCw, Download } from 'lucide-react'
 import { useUpdate } from '@/stores/update.store'
+import { useMuted } from '@/stores/muted.store'
 import { Switch } from '@/design-system/Switch'
 import { Group, Row, Select } from '@/design-system/Field'
+
+function MutedSenders() {
+  const [list, setList] = useState<{ address: string; createdAt: number }[]>([])
+  const load = () => void invoke('muted:list').then(setList)
+  useEffect(load, [])
+  if (!list.length) return <div className="frow" style={{ color: 'var(--text-2)', fontSize: 'var(--fs-sm)' }}>Aucun. Dans un message, l’interrupteur à côté de l’adresse de l’expéditeur permet de l’exclure.</div>
+  return <div className="frow col"><div className="check-list">{list.map((b) => <span key={b.address} className="check-chip on">{b.address} <button className="icon-btn" style={{ width: 18, height: 18 }} title="Réactiver" onClick={async () => { await invoke('muted:remove', b.address); load(); void useMuted.getState().load() }}><X size={12} /></button></span>)}</div></div>
+}
 
 function BlockedSenders() {
   const [list, setList] = useState<{ address: string; createdAt: number }[]>([])
@@ -57,6 +66,7 @@ export function GeneralPane() {
             <option value="0">Jamais</option><option value="7">Après 7 jours</option><option value="30">Après 30 jours</option><option value="90">Après 90 jours</option>
           </Select>
         </Row>
+        <Row label="Sans réponse préparée" hint="L’assistant ne rédige jamais de réponse pour ces expéditeurs." column><MutedSenders /></Row>
         <Row label="Expéditeurs bloqués" hint="Leurs messages vont directement dans Indésirables, sans passer par la réception." column><BlockedSenders /></Row>
         <Row label="Confirmer avant d’envoyer" hint="Récapitulatif des destinataires, de l’objet et des pièces jointes avant chaque envoi (Entrée pour confirmer)."><Switch on={app.confirmSend !== false} onChange={(v) => void setApp({ confirmSend: v })} /></Row>
         <Row label="Indexer le contenu complet des messages" hint="Télécharge progressivement le texte de tous les messages en arrière-plan : la recherche et l’assistant voient le contenu entier, pas seulement l’aperçu."><Switch on={app.fullTextIndex !== false} onChange={(v) => void setApp({ fullTextIndex: v })} /></Row>

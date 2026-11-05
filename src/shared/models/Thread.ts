@@ -14,4 +14,7 @@ export interface Thread {
   hasAttachments: boolean
   folderIds: string[]
   category: string | null
+  // suivi des réponses : le dernier message est-il de nous ? réponse préparée par l'assistant ?
+  lastFromMe: boolean
+  replyState: 'pending' | 'generating' | 'ready' | 'dismissed' | 'error' | 'sent' | null
 }
