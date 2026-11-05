@@ -26,13 +26,27 @@ function fieldValue(m: Message, c: RuleCondition): string {
 }
 
 export function matches(m: Message, c: RuleCondition): boolean {
-  const v = nz(fieldValue(m, c)); const t = nz(c.value)
+  const t = nz(c.value)
   if (c.field === 'attachment' && (c.op === 'is' || c.op === 'isNot')) { const has = !!(m.attachments ?? []).some((a) => !a.inline); return c.op === 'is' ? has : !has }
+  // Expéditeur / destinataire : « contient » cherche dans nom + adresse ; les autres opérateurs portent sur chaque adresse seule
+  if (c.field === 'from' || c.field === 'to') {
+    const addrs = (c.field === 'from' ? [m.from] : [...(m.to ?? []), ...(m.cc ?? [])]).map((a) => nz(a.address))
+    const full = nz(fieldValue(m, c))
+    switch (c.op) {
+      case 'contains': return !!t && full.includes(t)
+      case 'notContains': return !t || !full.includes(t)
+      case 'equals': case 'is': return addrs.includes(t)
+      case 'isNot': return !addrs.includes(t)
+      case 'startsWith': return addrs.some((a) => a.startsWith(t))
+      case 'endsWith': return addrs.some((a) => a.endsWith(t))
+    }
+  }
+  const v = nz(fieldValue(m, c))
   switch (c.op) {
     case 'contains': return !!t && v.includes(t)
     case 'notContains': return !t || !v.includes(t)
-    case 'equals': case 'is': return v === t || (c.field === 'from' && v.includes(`<${t}>`))
-    case 'isNot': return !(v === t || (c.field === 'from' && v.includes(`<${t}>`)))
+    case 'equals': case 'is': return v === t
+    case 'isNot': return v !== t
     case 'startsWith': return v.startsWith(t)
     case 'endsWith': return v.endsWith(t)
   }

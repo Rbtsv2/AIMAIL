@@ -70,12 +70,14 @@ export function RulesPane() {
   const save = async () => {
     if (!edit) return
     const r = await invoke('rules:save', { ...edit, conditions: edit.conditions.filter((c) => c.value.trim() || c.field === 'attachment'), actions: edit.actions.filter((a) => a.type !== 'move' || a.folderId) })
-    setEdit(null); load(); useUi.getState().toast({ text: `Règle « ${r.name} » enregistrée` })
+    setEdit(null); load()
+    // appliquée tout de suite aux messages déjà reçus (si la règle est active)
+    if (r.enabled) await run(r); else useUi.getState().toast({ text: `Règle « ${r.name} » enregistrée (désactivée)` })
   }
   const run = async (rule?: Rule) => {
-    useUi.getState().toast({ text: 'Application des règles aux messages des 30 derniers jours…' })
+    useUi.getState().toast({ text: rule ? `Application de « ${rule.name} » aux messages existants…` : 'Application des règles aux messages existants…' })
     const r = await invoke('rules:run', { ruleId: rule?.id })
-    useUi.getState().toast({ text: `${r.touched} message${r.touched > 1 ? 's' : ''} concerné${r.touched > 1 ? 's' : ''}, ${r.moved} déplacé${r.moved > 1 ? 's' : ''}` })
+    useUi.getState().toast({ text: rule ? `« ${rule.name} » : ${r.touched} message${r.touched > 1 ? 's' : ''} concerné${r.touched > 1 ? 's' : ''}, ${r.moved} déplacé${r.moved > 1 ? 's' : ''}` : `${r.touched} message${r.touched > 1 ? 's' : ''} concerné${r.touched > 1 ? 's' : ''}, ${r.moved} déplacé${r.moved > 1 ? 's' : ''}` })
   }
   const move = async (i: number, dir: -1 | 1) => { const ids = rules.map((r) => r.id); const j = i + dir; if (j < 0 || j >= ids.length) return; [ids[i], ids[j]] = [ids[j], ids[i]]; await invoke('rules:reorder', ids); load() }
   const describe = (r: Rule) => {

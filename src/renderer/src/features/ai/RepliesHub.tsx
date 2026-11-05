@@ -65,6 +65,7 @@ export function RepliesHub() {
   useEffect(() => { let on = true; void invoke('replies:candidates', { accountId: view.accountId }).then((n) => { if (on) setPending(n) }); return () => { on = false } }, [view.accountId, counts.generating, counts.ready, items.length])
   const start = async () => {
     if (!aiEnabled) { useUi.getState().toast({ text: 'Activez l’assistant dans les Réglages', action: { label: 'Réglages', fn: () => useUi.getState().openSettings('ai') } }); return }
+    setTab('todo')   // les cartes se remplissent sous les yeux de l'utilisateur dans « À traiter »
     const n = await generate({ accountId: view.accountId })
     useUi.getState().toast({ text: n ? `${n} réponse${n > 1 ? 's' : ''} en préparation` : 'Aucun nouveau message à traiter' })
   }
@@ -80,7 +81,7 @@ export function RepliesHub() {
           <span>Préparer les réponses</span>
           {pending !== null && pending > 0 && <span className="hub-cta-count">{pending}</span>}
         </button>
-        <p>{pending === 0 ? `Aucun message en attente de réponse${view.accountId ? ' sur ce compte' : ''} ces 14 derniers jours.` : `${pending === null ? 'Les messages' : pending === 1 ? '1 message attend' : `${pending} messages attendent`} une réponse${view.accountId ? ' sur ce compte' : ''}. L’assistant rédige une proposition pour chacun ; elles restent sous les messages, prêtes à envoyer.`}</p>
+        <p>{pending === 0 ? `Aucun message en attente de réponse${view.accountId ? ' sur ce compte' : ''}.` : `${pending === null ? 'Les messages' : pending === 1 ? '1 message attend' : `${pending} messages attendent`} une réponse${view.accountId ? ' sur ce compte' : ''}. L’assistant rédige une proposition pour chacun ; elles restent sous les messages, prêtes à envoyer.`}</p>
       </div>
     )
   }
@@ -89,7 +90,7 @@ export function RepliesHub() {
       <div className="hub-bar">
         <div className="hub-title"><Mail size={15} /> Réponses
           <div className="hub-tabs">
-            <button className={tab === 'todo' ? 'on' : ''} onClick={() => setTab('todo')}>À traiter <span className="count">{counts.ready}</span></button>
+            <button className={tab === 'todo' ? 'on' : ''} onClick={() => setTab('todo')}>À traiter <span className="count">{counts.ready}{counts.generating > 0 ? ` + ${counts.generating}` : ''}</span></button>
             <button className={tab === 'ignored' ? 'on' : ''} onClick={() => setTab('ignored')}>Ignorées <span className="count muted">{ignored.length}</span></button>
             <button className={tab === 'sent' ? 'on' : ''} onClick={() => setTab('sent')}>Répondues <span className="count ok">{sent.length}</span></button>
           </div>
@@ -102,10 +103,11 @@ export function RepliesHub() {
           </div>
         </div>
       </div>
-      <div className={`hub-grid ${mode}`}>
-        <AnimatePresence>{shown.map((r) => <Card key={r.messageId} r={r} mode={mode} />)}</AnimatePresence>
-
-      </div>
+      {shown.length === 0
+        ? <div className="hub-none">{tab === 'todo' ? (pending === 0 ? `Aucun message en attente de réponse${view.accountId ? ' sur ce compte' : ''}.` : 'Aucune réponse en attente — « Préparer d’autres réponses » pour en générer.') : tab === 'ignored' ? 'Aucune réponse ignorée.' : 'Aucune réponse envoyée depuis ici.'}</div>
+        : <div className={`hub-grid ${mode}`}>
+            <AnimatePresence>{shown.map((r) => <Card key={r.messageId} r={r} mode={mode} />)}</AnimatePresence>
+          </div>}
     </div>
   )
 }

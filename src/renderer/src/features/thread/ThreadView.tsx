@@ -1,6 +1,5 @@
 // src/renderer/src/features/thread/ThreadView.tsx
 import { Archive, Trash2, Star, MailOpen, Mail, PenLine, Reply, ReplyAll, Forward, ShieldAlert, ShieldCheck } from 'lucide-react'
-import { invoke } from '@/lib/api'
 import { useUi } from '@/stores/ui.store'
 import { AssistantChat } from '@/features/ai/AssistantChat'
 import { ChatRefsPanel } from '@/features/ai/ChatRefsPanel'
@@ -50,7 +49,7 @@ export function ThreadView() {
     return (
       <main className="pane">
         <div className="pane-head drag" />
-        {chatActive ? <AssistantChat /> : repliesCount > 0 ? <div className="hub-wrap"><RepliesHub /><AssistantChat /></div> : <div className="empty"><div><RepliesHub /><AssistantChat /></div></div>}
+        {chatActive ? <AssistantChat /> : <div className="hub-wrap"><RepliesHub /><AssistantChat /></div>}
       </main>
     )
   }
@@ -61,9 +60,8 @@ export function ThreadView() {
   const spamFolder = (folders[cur.thread.accountId] ?? []).find((f) => f.role === 'spam')
   const isSpam = !!spamFolder && !!last && last.folderId === spamFolder.id
   const report = async (toSpam: boolean) => {
-    useMail.getState().selectRelative(1)
-    await invoke('messages:move', ids, toSpam ? 'spam' : 'inbox')
     const sender = last?.from.address ?? ''
+    await useMail.getState().act([cur.thread.id], toSpam ? 'spam' : 'inbox')
     useUi.getState().toast({ text: toSpam ? `Indésirable — les prochains messages de ${sender} iront directement dans Indésirables` : `Déplacé dans la réception — ${sender} n’est plus bloqué`, ttl: 6000 })
   }
   return (

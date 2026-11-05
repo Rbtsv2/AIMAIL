@@ -116,7 +116,21 @@ export const MessageRepo = {
     const stmt = db.prepare('UPDATE messages SET folder_id=?, uid=? WHERE id=?')
     const folderText = ((db.prepare('SELECT path FROM folders WHERE id = ?').get(folderId) as any)?.path ?? '').replace(/[./]/g, ' ')
     const fts = db.prepare('UPDATE messages_fts SET folder_text=? WHERE id=?')
-    for (const mid of ids) { stmt.run(folderId, uidMap[mid] ?? 0, mid); fts.run(folderText, mid) }
+    const existing = db.prepare('SELECT id FROM messages WHERE folder_id=? AND uid=? AND id<>?')
+    const del = db.prepare('DELETE FROM messages WHERE id=?')
+    const delFts = db.prepare('DELETE FROM messages_fts WHERE id=?')
+    const tx = db.transaction(() => {
+      for (const mid of ids) {
+        const uid = uidMap[mid] ?? 0
+        // UID inconnu (serveur sans COPYUID) : on retire la copie locale, la synchro du dossier cible la recréera
+        if (!uid) { del.run(mid); delFts.run(mid); continue }
+        // la synchro du dossier cible a déjà inséré ce message sous son nouvel UID : on fusionne en gardant l'ancienne ligne (id stable)
+        const dup = existing.get(folderId, uid, mid) as any
+        if (dup) { del.run(dup.id); delFts.run(dup.id) }
+        stmt.run(folderId, uid, mid); fts.run(folderText, mid)
+      }
+    })
+    tx()
   },
   deleteByUids(folderId: string, uids: number[]): void {
     const db = getDb()

@@ -573,7 +573,12 @@ body.dragging .sidebar-account.toggle { cursor: grabbing; }
 .confirm-row strong { font-weight: 500; overflow-wrap: anywhere; }
 .confirm-excerpt { margin: 12px 0 0; padding: 10px 12px; background: var(--surface-2); border-radius: var(--r-sm); font-size: var(--fs-sm); color: var(--text-2); line-height: 1.45; }
 .confirm-warn { display: flex; align-items: center; gap: 7px; margin-top: 10px; color: #d9822b; font-size: var(--fs-sm); }
-.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
+.confirm-actions .btn { max-width: 100%; white-space: normal; text-align: center; line-height: 1.25; height: auto; min-height: 34px; padding-top: 7px; padding-bottom: 7px; }
+/* libellés longs (choix entre deux options) : boutons empilés pleine largeur, primaire en premier */
+.confirm-actions.stacked { flex-direction: column-reverse; align-items: stretch; }
+.confirm-actions.stacked .btn { width: 100%; justify-content: center; }
+.confirm-actions.stacked kbd { display: none; }
 .confirm-actions kbd { margin-left: 6px; font-size: calc(var(--fs-xs) - 1px); opacity: .7; }
 
 .chat.active { flex-direction: row; }
@@ -629,7 +634,7 @@ body.dragging .sidebar-account.toggle { cursor: grabbing; }
 
 /* réponses préparées (hub) */
 .hub-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.hub-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 18px 0 6px; }
+.hub-empty { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; }
 .hub-empty p { max-width: 420px; text-align: center; color: var(--text-2); font-size: var(--fs-sm); margin: 0; line-height: 1.5; }
 .hub-cta { position: relative; display: inline-flex; align-items: center; gap: 10px; padding: 12px 22px; border-radius: var(--r-pill); font-size: var(--fs-md); font-weight: 600; color: #fff; background: linear-gradient(135deg, var(--accent), #8b5cf6); box-shadow: 0 8px 24px rgba(79,107,237,.35); overflow: hidden; transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease); }
 .hub-cta:hover { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(79,107,237,.45); }
@@ -637,7 +642,11 @@ body.dragging .sidebar-account.toggle { cursor: grabbing; }
 .hub-cta-glow { position: absolute; inset: -40%; background: conic-gradient(from 0deg, transparent 0 70%, rgba(255,255,255,.35) 85%, transparent 100%); animation: hub-spin 3.5s linear infinite; pointer-events: none; }
 @keyframes hub-spin { to { transform: rotate(360deg); } }
 .hub { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 14px 18px 0; gap: 12px; overflow: hidden; }
-.hub-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+/* onglets sans contenu : message centré dans l'espace restant */
+.hub-none { flex: 1; display: grid; place-items: center; color: var(--text-3); font-size: var(--fs-sm); padding: 40px 20px; text-align: center; }
+.hub-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; }
+.hub-bar .hub-title { flex-wrap: wrap; row-gap: 8px; }
+.hub-tools { margin-left: auto; }
 .hub-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: var(--fs-md); }
 .hub-title .count { font-size: var(--fs-xs); background: var(--accent-soft); color: var(--accent); padding: 1px 8px; border-radius: var(--r-pill); font-weight: 600; }
 .hub-running { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-xs); color: var(--text-2); font-weight: 500; }
@@ -804,3 +813,18 @@ body.dragging .sidebar-account.toggle { cursor: grabbing; }
 .apw-cell:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .apw-tools { display: flex; gap: 2px; }
 .apw-count { font-size: var(--fs-xs); color: var(--text-3); min-width: 38px; }
+
+/* glisser d'un message : les dossiers des autres comptes sont grisés, dépôt refusé */
+.sidebar-item.foreign { opacity: .35; filter: grayscale(1); }
+body.drop-forbidden, body.drop-forbidden * { cursor: not-allowed !important; }
+
+/* filtre des dossiers sous chaque adresse */
+.sidebar-folder-search { display: flex; align-items: center; gap: 6px; margin: 2px 8px 4px 0; padding: 0 8px; height: 26px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--text-3); }
+.sidebar-folder-search input { flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: var(--text); font-size: var(--fs-xs); }
+.sidebar-folder-search input::placeholder { color: var(--text-3); }
+.sidebar-folder-search:focus-within { box-shadow: 0 0 0 2px var(--accent-soft); color: var(--text-2); }
+
+/* compteurs de dossier : non lus en couleur, total en petit gris */
+.sidebar-item .counts { display: inline-flex; align-items: baseline; gap: 5px; margin-left: auto; }
+.sidebar-item .count.unread { color: var(--accent); font-weight: 600; }
+.sidebar-item .count.total { color: var(--text-3); font-size: calc(var(--fs-xs) - 1px); }

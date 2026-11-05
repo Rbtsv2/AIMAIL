@@ -20,7 +20,7 @@ export function ConfirmDialog() {
           <motion.div className="confirm-card" role="alertdialog" aria-modal="true" initial={{ opacity: 0, y: 10, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.98 }} transition={{ type: 'spring', stiffness: 420, damping: 32 }} onMouseDown={(e) => e.stopPropagation()}>
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{req.danger && <AlertTriangle size={16} style={{ color: '#d9822b' }} />}{req.title}</h3>
             {req.body && <p className="confirm-excerpt" style={{ marginTop: 0 }}>{req.body}</p>}
-            <div className="confirm-actions">
+            <div className={`confirm-actions ${((req.okLabel ?? '').length + (req.cancelLabel ?? '').length) > 34 ? 'stacked' : ''}`}>
               <button className="btn quiet" onClick={() => req.resolve(false)}>{req.cancelLabel ?? 'Annuler'} <kbd>Échap</kbd></button>
               <button className={`btn ${req.danger ? 'danger-solid' : 'primary'}`} autoFocus onClick={() => req.resolve(true)}>{req.okLabel ?? 'Confirmer'} <kbd>↵</kbd></button>
             </div>

@@ -14,6 +14,7 @@ export interface AiSettings {
   provider: AiProviderConfig
   redactBeforeCloud: boolean
   autoClassify: boolean
+  pace: 'continuous' | 'paced' | 'night'   // rythme des tâches de fond : lot continu / 20 s entre chaque / seulement la nuit (22h–7h)
   autoReply: boolean
   allowSources: boolean
   verifyFacts: boolean
@@ -32,6 +33,7 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   provider: { kind: 'ollama', model: 'llama3.1', baseUrl: 'http://127.0.0.1:11434' },
   redactBeforeCloud: true,
   autoClassify: false,
+  pace: 'continuous',
   autoReply: false,
   allowSources: true,
   verifyFacts: true,

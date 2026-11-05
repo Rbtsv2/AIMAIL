@@ -48,7 +48,13 @@ export const useUi = create<UiState>((set, get) => ({
   setCalendar: (v) => set({ calendarOpen: v, settingsOpen: v ? false : get().settingsOpen, addAccountOpen: v ? false : get().addAccountOpen, contactsOpen: v ? false : get().contactsOpen }),
   toast: (t) => {
     const id = crypto.randomUUID()
-    set((s) => ({ toasts: [...s.toasts, { ...t, id }] }))
+    set((s) => {
+      // même texte déjà affiché : on le remplace plutôt que d'empiler ; au plus 3 visibles, les plus anciens sans action sont retirés
+      let list = s.toasts.filter((x) => x.text !== t.text)
+      list = [...list, { ...t, id }]
+      while (list.length > 3) { const i = list.findIndex((x) => !x.action); if (i < 0) break; list.splice(i, 1) }
+      return { toasts: list.slice(-3) }
+    })
     setTimeout(() => get().dismissToast(id), t.ttl ?? 4000)
     return id
   },

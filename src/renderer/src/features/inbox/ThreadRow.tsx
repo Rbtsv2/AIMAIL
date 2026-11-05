@@ -24,8 +24,8 @@ export const ThreadRow = memo(function ThreadRow({ t, selected, showAccount, onC
         if ((e.target as HTMLElement).closest('.row-actions') || e.ctrlKey || e.metaKey || e.shiftKey) return
         if (e.clientX - e.currentTarget.getBoundingClientRect().left < 26) return
         const sel = useMail.getState().selection
-        if (sel.length > 1 && sel.includes(t.id)) beginDrag(e, { kind: 'threads', id: t.id, ids: sel, label: `${sel.length} conversations`, count: sel.length })
-        else beginDrag(e, { kind: 'thread', id: t.id, label: t.subject || '(sans objet)', count: t.messageCount })
+        if (sel.length > 1 && sel.includes(t.id)) beginDrag(e, { kind: 'threads', id: t.id, ids: sel, label: `${sel.length} conversations`, count: sel.length, accountId: t.accountId })
+        else beginDrag(e, { kind: 'thread', id: t.id, label: t.subject || '(sans objet)', count: t.messageCount, accountId: t.accountId })
       }}>
       <div className="unread-dot" />
       <div style={{ minWidth: 0 }}>

@@ -61,6 +61,9 @@ export function AiPane() {
           </div>
         </Row>}
         <Row label="Détecter les événements dans les messages" hint="Rendez-vous, réunions, convocations décrits dans le texte : une carte propose de les ajouter à l’agenda."><Switch on={s.detectEvents} onChange={(detectEvents) => void save({ detectEvents })} /></Row>
+        <Row label="Rythme des tâches de fond" hint="Réponses préparées et classification. « Espacé » laisse 20 s entre deux générations (machine plus silencieuse) ; « La nuit » reporte le travail automatique entre 22 h et 7 h — un lancement manuel s’exécute toujours tout de suite.">
+          <Segmented value={s.pace ?? 'continuous'} options={[{ value: 'continuous', label: 'Continu' }, { value: 'paced', label: 'Espacé' }, { value: 'night', label: 'La nuit' }]} onChange={(pace) => void save({ pace })} />
+        </Row>
         <Row label="Classer automatiquement les nouveaux messages" hint="Chaque message reçu est étiqueté en arrière-plan : urgent, action, information, newsletter ou spam."><Switch on={s.autoClassify} onChange={(autoClassify) => void save({ autoClassify })} /></Row>
         {k !== 'ollama' && <Row label="Masquer les données sensibles avant envoi" hint="Adresses e-mail, téléphones et IBAN sont remplacés par des jetons, puis restaurés dans la réponse."><Switch on={s.redactBeforeCloud} onChange={(redactBeforeCloud) => void save({ redactBeforeCloud })} /></Row>}
       </Group>

@@ -139,6 +139,8 @@ export class ImapSyncEngine implements SyncEngine {
       for (let i = 0; i < missing.length; i += 50) {
         const batch = missing.slice(i, i + 50)
         for await (const msg of c.fetch(batch, { uid: true, envelope: true, flags: true, bodyStructure: true, internalDate: true, size: true }, { uid: true })) {
+          // message marqué \Deleted (suppression en cours, expunge pas encore fait) : ne pas le réinsérer
+          if ((msg.flags ?? new Set()).has('\\Deleted')) continue
           const m = this.toMessage(folder, msg)
           ThreadRepo.ensure(m.threadId, this.account.id, m.subject, m.date)
           MessageRepo.insert(m)

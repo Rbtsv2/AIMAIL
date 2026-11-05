@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { create } from 'zustand'
 import { Folder, Mail } from 'lucide-react'
 
-export type DragPayload = { kind: 'folder' | 'thread' | 'threads' | 'account'; id: string; ids?: string[]; label: string; count?: number }
+export type DragPayload = { kind: 'folder' | 'thread' | 'threads' | 'account'; id: string; ids?: string[]; label: string; count?: number; accountId?: string }
 
 export type DropLine = { top: number; left: number; width: number } | null
 export type Resolved = { hover: string | null; line: DropLine }
@@ -42,12 +42,15 @@ export function beginDrag(e: React.PointerEvent, payload: DragPayload): void {
     if (r) { useDnd.getState().set({ x: ev.clientX, y: ev.clientY, hover: r.hover, line: r.line }); return }
     const el = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>('[data-drop-folder]')
     const target = el?.dataset.dropFolder ?? null
-    const valid = target && !(payload.kind === 'folder' && target === payload.id)
+    // un message ne peut pas changer de compte : les dossiers des autres comptes sont des cibles interdites
+    const foreign = !!target && !!payload.accountId && !!el?.dataset.dropAccount && el.dataset.dropAccount !== payload.accountId && (payload.kind === 'thread' || payload.kind === 'threads')
+    const valid = target && !foreign && !(payload.kind === 'folder' && target === payload.id)
+    document.body.classList.toggle('drop-forbidden', foreign)
     useDnd.getState().set({ x: ev.clientX, y: ev.clientY, hover: valid ? target : null, line: null })
   }
   const up = () => {
     window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('keydown', esc)
-    document.body.classList.remove('dragging')
+    document.body.classList.remove('dragging'); document.body.classList.remove('drop-forbidden')
     if (!started) return
     suppressClickUntil = Date.now() + 250
     const { hover } = useDnd.getState()

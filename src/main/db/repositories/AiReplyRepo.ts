@@ -3,7 +3,8 @@ import { getDb } from '../index'
 import type { AiReply, AiReplyStatus } from '@shared/models/AiReply'
 
 const row = (r: any): AiReply => ({ messageId: r.message_id, threadId: r.thread_id, accountId: r.account_id, text: r.text, status: r.status, error: r.error ?? null, createdAt: r.created_at, updatedAt: r.updated_at, subject: r.subject ?? '', from: r.from_json ? (JSON.parse(r.from_json).name || JSON.parse(r.from_json).address) : '', fromAddress: r.from_json ? JSON.parse(r.from_json).address ?? '' : '', date: r.date ?? 0, snippet: r.snippet ?? '' })
-const JOIN = 'SELECT a.*, m.subject, m.from_json, m.date, m.snippet FROM ai_replies a JOIN messages m ON m.id = a.message_id'
+// le message doit encore exister et ne pas être à la Corbeille / Indésirables : une réponse préparée suit le sort de son message
+const JOIN = "SELECT a.*, m.subject, m.from_json, m.date, m.snippet FROM ai_replies a JOIN messages m ON m.id = a.message_id JOIN folders f ON f.id = m.folder_id AND f.role NOT IN ('trash','spam')"
 
 export const AiReplyRepo = {
   list(statuses: AiReplyStatus[] = ['pending', 'generating', 'ready', 'error']): AiReply[] {
@@ -21,7 +22,7 @@ export const AiReplyRepo = {
   setStatus(messageId: string, status: AiReplyStatus, error?: string): void { getDb().prepare('UPDATE ai_replies SET status = ?, error = ?, updated_at = ? WHERE message_id = ?').run(status, error ?? null, Date.now(), messageId) },
   markThreadSent(threadId: string): number { return getDb().prepare("UPDATE ai_replies SET status = 'sent', updated_at = ? WHERE thread_id = ? AND status IN ('pending','generating','ready','error')").run(Date.now(), threadId).changes },
   counts(): { ready: number; generating: number } {
-    const r = getDb().prepare("SELECT SUM(status = 'ready') ready, SUM(status IN ('pending','generating')) generating FROM ai_replies").get() as any
+    const r = getDb().prepare("SELECT SUM(a.status = 'ready') ready, SUM(a.status IN ('pending','generating')) generating FROM ai_replies a JOIN messages m ON m.id = a.message_id JOIN folders f ON f.id = m.folder_id AND f.role NOT IN ('trash','spam')").get() as any
     return { ready: r?.ready ?? 0, generating: r?.generating ?? 0 }
   }
 }

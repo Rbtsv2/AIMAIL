@@ -28,9 +28,12 @@ async function work(): Promise<void> {
   running = true
   try {
     while (queue.length) {
-      const id = queue.shift()!
       const settings = SettingsRepo.ai()
       if (!settings.enabled || !settings.autoClassify) { queue.length = 0; break }
+      const pace = settings.pace ?? 'continuous'
+      if (pace === 'night') { const h = new Date().getHours(); if (!(h >= 22 || h < 7)) { setTimeout(() => void work(), 15 * 60_000); break } }   // la file attend la nuit
+      const id = queue.shift()!
+      if (pace === 'paced') await new Promise((r) => setTimeout(r, 20_000))
       const m = MessageRepo.get(id)
       if (!m || m.category) continue
       const account = AccountRepo.get(m.accountId)

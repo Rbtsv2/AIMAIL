@@ -5,6 +5,7 @@ import type { Thread } from '@shared/models/Thread'
 import type { Message } from '@shared/models/Message'
 import type { ThreadEvent } from '@shared/ipc'
 import { invoke } from '@/lib/api'
+import { offerRuleAfterMove, collectSenders } from '@/features/rules/offerRule'
 import { useUi } from './ui.store'
 
 export interface View { accountId?: string; folderId?: string; role?: string; label: string }
@@ -13,6 +14,9 @@ interface S {
   view: View
   search: string
   threads: Thread[]
+  hidden: Record<string, number>   // fils traités (action en cours ou faite) : jamais réaffichés par un rafraîchissement
+  hide(ids: string[]): void
+  unhide(ids: string[]): void
   loading: boolean
   viewKey: string          // clé de la vue dont « threads » est le résultat (évite le squelette à chaque resynchro)
   filter: ThreadFilter
@@ -38,12 +42,13 @@ interface S {
   clickSelect(id: string, mods: { ctrl: boolean; shift: boolean }): void
   clearSelection(): void
   bulk(action: 'archive' | 'trash' | 'delete' | 'read' | 'unread' | 'star' | 'unstar' | 'spam' | 'inbox' | 'folder', folderId?: string): Promise<void>
+  act(ids: string[], action: 'archive' | 'trash' | 'delete' | 'read' | 'unread' | 'star' | 'unstar' | 'spam' | 'inbox' | 'folder', folderId?: string): Promise<void>
 }
 
 const PAGE = 60
 
 export const useMail = create<S>((set, get) => ({
-  view: { role: 'inbox', label: 'Réception' }, search: '', threads: [], loading: false, viewKey: '', filter: {}, hasMore: true, selectedId: null, selection: [], anchorId: null, current: null,
+  view: { role: 'inbox', label: 'Réception' }, search: '', threads: [], hidden: {}, loading: false, viewKey: '', filter: {}, hasMore: true, selectedId: null, selection: [], anchorId: null, current: null,
   setView: (view) => { useUi.getState().closeSettings(); useUi.getState().setAddAccount(false); useUi.getState().setContacts(false); useUi.getState().setCalendar(false); set({ view, search: '', selectedId: null, selection: [], anchorId: null, current: null }); void get().refresh() },
   setSearch: (search) => { set({ search }); void get().refresh() },
   setFilter: (patch) => { const f = { ...get().filter, ...patch }; for (const k of Object.keys(f) as (keyof ThreadFilter)[]) if (f[k] === undefined || f[k] === false || f[k] === '') delete f[k]; set({ filter: f }); void get().refresh() },
@@ -57,14 +62,17 @@ export const useMail = create<S>((set, get) => ({
     const cur = get()
     const curKey = `${cur.view.accountId ?? ''}|${cur.view.folderId ?? ''}|${cur.view.role ?? ''}|${cur.search}|${JSON.stringify(cur.filter)}`
     if (curKey !== key) return   // la vue a changé entre-temps : résultat obsolète
-    set({ threads, loading: false, viewKey: key, hasMore: threads.length === PAGE })
+    const now = Date.now(); const hidden: Record<string, number> = {}
+    for (const [id, t] of Object.entries(cur.hidden)) if (now - t < 10 * 60_000) hidden[id] = t
+    set({ threads: threads.filter((t) => !hidden[t.id]), hidden, loading: false, viewKey: key, hasMore: threads.length === PAGE })
   },
   loadMore: async () => {
     const { view, search, filter, threads, hasMore, loading } = get()
     if (!hasMore || loading) return
     set({ loading: true })
     const more = await invoke('threads:list', { accountId: view.accountId, folderId: view.folderId, role: view.role, search, filter, limit: PAGE, offset: threads.length })
-    set({ threads: [...threads, ...more], loading: false, hasMore: more.length === PAGE })
+    const { hidden } = get()
+    set({ threads: [...threads, ...more.filter((t) => !hidden[t.id])], loading: false, hasMore: more.length === PAGE })
   },
   select: async (id) => {
     if (id) { useUi.getState().closeSettings(); useUi.getState().setAddAccount(false); useUi.getState().setContacts(false); useUi.getState().setCalendar(false) }
@@ -75,7 +83,9 @@ export const useMail = create<S>((set, get) => ({
   },
   reloadCurrent: async () => { const id = get().selectedId; if (id) set({ current: await invoke('threads:get', id) }) },
   flag: async (ids, patch) => { await invoke('messages:flag', ids, patch) },
-  removeLocal: (threadId) => set((s) => ({ threads: s.threads.filter((t) => t.id !== threadId), selection: s.selection.filter((x) => x !== threadId) })),
+  removeLocal: (threadId) => set((s) => ({ threads: s.threads.filter((t) => t.id !== threadId), selection: s.selection.filter((x) => x !== threadId), hidden: { ...s.hidden, [threadId]: Date.now() } })),
+  hide: (ids) => set((s) => { const h = { ...s.hidden }; for (const id of ids) h[id] = Date.now(); return { hidden: h, threads: s.threads.filter((t) => !h[t.id]) } }),
+  unhide: (ids) => set((s) => { const h = { ...s.hidden }; for (const id of ids) delete h[id]; return { hidden: h } }),
   clickSelect: (id, mods) => {
     const { threads, selection, anchorId } = get()
     if (mods.shift && anchorId) {
@@ -91,13 +101,20 @@ export const useMail = create<S>((set, get) => ({
     void get().select(id)
   },
   clearSelection: () => set((s) => ({ selection: s.selectedId ? [s.selectedId] : [] })),
-  bulk: async (action, folderId) => {
-    const ids = [...get().selection]
+  bulk: async (action, folderId) => { await get().act([...get().selection], action, folderId) },
+  // même traitement pour une action depuis le menu, la vue du message ou le clavier : masqué tout de suite, rejoué si besoin
+  act: async (ids, action, folderId) => {
     if (!ids.length) return
     const msgIds = await invoke('threads:messageIds', ids)
     const removes = ['archive', 'trash', 'delete', 'spam', 'inbox', 'folder'].includes(action)
-    if (removes) { for (const t of ids) get().removeLocal(t); set({ selection: [], selectedId: null, current: null }) }
-    try {
+    if (removes) {
+      const wasSelected = ids.includes(get().selectedId ?? '')
+      if (wasSelected) get().selectRelative(1)
+      for (const t of ids) get().removeLocal(t)
+      set((s) => ({ selection: s.selection.filter((x) => !ids.includes(x)), ...(wasSelected && ids.includes(s.selectedId ?? '') ? { selectedId: null, current: null } : {}) }))
+    }
+    const senders = action === 'folder' && folderId ? await collectSenders(ids) : null
+    const perform = async () => {
       if (action === 'archive') await invoke('messages:move', msgIds, 'archive')
       else if (action === 'trash') await invoke('messages:move', msgIds, 'trash')
       else if (action === 'spam') await invoke('messages:move', msgIds, 'spam')
@@ -108,17 +125,29 @@ export const useMail = create<S>((set, get) => ({
       else if (action === 'unread') await invoke('messages:flag', msgIds, { unread: true })
       else if (action === 'star') await invoke('messages:flag', msgIds, { starred: true })
       else if (action === 'unstar') await invoke('messages:flag', msgIds, { starred: false })
-      const n = ids.length
-      const label: Record<string, string> = { archive: 'archivées', trash: 'supprimées', delete: 'supprimées définitivement', spam: 'signalées', inbox: 'restaurées', folder: 'déplacées', read: 'marquées lues', unread: 'marquées non lues', star: 'suivies', unstar: 'ne sont plus suivies' }
-      useUi.getState().toast({ text: `${n} conversation${n > 1 ? 's' : ''} ${label[action]}`, ttl: 1800 })
-    } catch (e: any) { useUi.getState().toast({ text: String(e?.message ?? e).replace(/^Error invoking remote method '[^']+': Error: /, ''), ttl: 6000 }); void get().refresh() }
+    }
+    // une action = traité : en cas d'échec (serveur lent, coupure), on rejoue 3 fois en arrière-plan avant de réafficher
+    const delays = [2000, 6000, 15000]
+    let lastErr: any = null
+    for (let attempt = 0; attempt <= delays.length; attempt++) {
+      try { await perform(); lastErr = null; break } catch (e) { lastErr = e; if (attempt < delays.length) await new Promise((r) => setTimeout(r, delays[attempt])) }
+    }
+    if (lastErr) {
+      if (removes) { get().unhide(ids); void get().refresh() }
+      useUi.getState().toast({ text: `Action impossible : ${String(lastErr?.message ?? lastErr).replace(/^Error invoking remote method '[^']+': Error: /, '')}`, ttl: 8000 })
+      return
+    }
+    if (senders && folderId) void offerRuleAfterMove(senders, folderId)
+    const n = ids.length
+    const label: Record<string, string> = { archive: 'archivées', trash: 'supprimées', delete: 'supprimées définitivement', spam: 'signalées', inbox: 'restaurées', folder: 'déplacées', read: 'marquées lues', unread: 'marquées non lues', star: 'suivies', unstar: 'ne sont plus suivies' }
+    useUi.getState().toast({ text: `${n} conversation${n > 1 ? 's' : ''} ${label[action]}`, ttl: 1800 })
   },
   deleteForever: async (threadId) => {
     const t = get().current
     const ids = t && t.thread.id === threadId ? t.messages.map((m) => m.id) : (await invoke('threads:get', threadId)).messages.map((m) => m.id)
     get().selectRelative(1)
     get().removeLocal(threadId)
-    try { await invoke('messages:delete', ids); useUi.getState().toast({ text: 'Supprimé définitivement', ttl: 1500 }) } catch (e: any) { useUi.getState().toast({ text: String(e?.message ?? e).replace(/^Error invoking remote method '[^']+': Error: /, ''), ttl: 6000 }); void get().refresh() }
+    try { await invoke('messages:delete', ids); useUi.getState().toast({ text: 'Supprimé définitivement', ttl: 1500 }) } catch (e: any) { get().unhide([threadId]); useUi.getState().toast({ text: String(e?.message ?? e).replace(/^Error invoking remote method '[^']+': Error: /, ''), ttl: 6000 }); void get().refresh() }
   },
   archive: async (threadId) => {
     const t = get().current
@@ -133,11 +162,7 @@ export const useMail = create<S>((set, get) => ({
     const { useAccounts } = await import('./accounts.store')
     const fs = th ? (useAccounts.getState().folders[th.accountId] ?? []) : []
     if (th && th.folderIds.length && th.folderIds.every((id) => { const r = fs.find((f) => f.id === id)?.role; return r === 'trash' || r === 'spam' })) return get().deleteForever(threadId)
-    const t = get().current
-    const ids = t && t.thread.id === threadId ? t.messages.map((m) => m.id) : (await invoke('threads:get', threadId)).messages.map((m) => m.id)
-    get().selectRelative(1)
-    get().removeLocal(threadId)
-    try { await invoke('messages:move', ids, 'trash') } catch (e: any) { useUi.getState().toast({ text: String(e?.message ?? e).replace(/^Error invoking remote method '[^']+': Error: /, ''), ttl: 6000 }) }
+    await get().act([threadId], 'trash')
   },
   selectRelative: (delta) => {
     const { threads, selectedId } = get()

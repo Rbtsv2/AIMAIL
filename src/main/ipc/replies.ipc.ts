@@ -23,14 +23,15 @@ function changed(): void { events.emitEvent('replies:changed', AiReplyRepo.count
 function candidates(opts: { accountId?: string; limit: number; days: number }): { id: string; threadId: string; accountId: string }[] {
   const own = new Set(AccountRepo.list().map((a) => a.email.toLowerCase()))
   const muted = new Set((getDb().prepare('SELECT address FROM muted_senders').all() as any[]).map((r) => r.address))
-  const since = Date.now() - opts.days * 86400_000
+  // days = 0 : tous les messages en attente, sans limite de date
+  const since = opts.days > 0 ? Date.now() - opts.days * 86400_000 : 0
   const inboxIds = AccountRepo.list().filter((a) => !opts.accountId || a.id === opts.accountId).map((a) => FolderRepo.byRole(a.id, 'inbox')?.id).filter((x): x is string => !!x)
   if (!inboxIds.length) return []
   const rows = getDb().prepare(`SELECT m.id, m.thread_id, m.account_id, m.from_json, m.category, m.date FROM messages m
     WHERE m.folder_id IN (${inboxIds.map(() => '?').join(',')}) AND m.date >= ?
       AND m.id = (SELECT id FROM messages x WHERE x.thread_id = m.thread_id ORDER BY x.date DESC LIMIT 1)
       AND NOT EXISTS (SELECT 1 FROM ai_replies r WHERE r.message_id = m.id AND r.status IN ('ready','sent','dismissed','generating','pending'))
-    ORDER BY m.date DESC LIMIT ?`).all(...inboxIds, since, opts.limit * 6) as any[]
+    ORDER BY m.date DESC LIMIT ?`).all(...inboxIds, since, Math.max(opts.limit * 6, 2000)) as any[]
   const out: { id: string; threadId: string; accountId: string }[] = []
   for (const r of rows) {
     const from = JSON.parse(r.from_json) as { name?: string; address: string }
@@ -43,14 +44,32 @@ function candidates(opts: { accountId?: string; limit: number; days: number }): 
   return out
 }
 
-async function runBatch(): Promise<void> {
+const isNight = () => { const h = new Date().getHours(); return h >= 22 || h < 7 }
+let nightTimer: NodeJS.Timeout | null = null
+/** Attente imposée par le rythme choisi : 20 s entre deux réponses, ou jusqu'à 22 h en mode nuit (sauf lancement manuel). */
+async function pace(manual: boolean): Promise<boolean> {
+  const p = SettingsRepo.ai().pace ?? 'continuous'
+  if (p === 'paced') { await new Promise((r) => setTimeout(r, 20_000)); return true }
+  if (p === 'night' && !manual && !isNight()) {
+    if (!nightTimer) { nightTimer = setTimeout(() => { nightTimer = null; void runBatch() }, 15 * 60_000) }   // on réessaie toutes les 15 min jusqu'à la nuit
+    return false
+  }
+  return true
+}
+
+async function runBatch(manual = false): Promise<void> {
   if (running) return
   running = true; stopRequested = false
   try {
+    let first = true
     for (;;) {
       if (stopRequested) break
       const next = AiReplyRepo.list(['pending'])[0]
       if (!next) break
+      if (!first && !(await pace(manual))) break
+      if (first && SettingsRepo.ai().pace === 'night' && !manual && !isNight()) { await pace(manual); break }
+      first = false
+      if (stopRequested) break
       AiReplyRepo.setStatus(next.messageId, 'generating'); changed()
       try {
         const text = await AiService.run({ task: 'reply', accountId: next.accountId, threadId: next.threadId }, `batch:${next.messageId}`)
@@ -81,17 +100,18 @@ export function registerRepliesIpc(): void {
   handle('replies:list', (statuses) => AiReplyRepo.list(statuses))
   handle('replies:restore', (messageId) => { const r = AiReplyRepo.byMessage(messageId); if (!r) return; AiReplyRepo.setStatus(messageId, r.text.trim() ? 'ready' : 'pending'); changed(); if (!r.text.trim()) void runBatch() })
   handle('replies:counts', () => AiReplyRepo.counts())
-  handle('replies:candidates', (opts) => candidates({ accountId: opts?.accountId, limit: opts?.limit ?? BATCH_LIMIT, days: opts?.days ?? 14 }).length)
+  handle('replies:candidates', (opts) => candidates({ accountId: opts?.accountId, limit: opts?.limit ?? BATCH_LIMIT, days: opts?.days ?? 0 }).length)
   handle('replies:forThread', (threadId) => AiReplyRepo.byThread(threadId) ?? null)
   handle('replies:generate', (opts) => {
     if (!SettingsRepo.ai().enabled) throw new Error('Activez l’assistant dans les Réglages')
-    const list = candidates({ accountId: opts?.accountId, limit: opts?.limit ?? BATCH_LIMIT, days: opts?.days ?? 14 })
+    // lancement manuel : le mode « nuit » est ignoré (l'utilisateur l'a demandé maintenant)
+    const list = candidates({ accountId: opts?.accountId, limit: opts?.limit ?? BATCH_LIMIT, days: opts?.days ?? 0 })
     for (const c of list) AiReplyRepo.upsert(c.id, c.threadId, c.accountId, 'pending')
     changed()
-    void runBatch()
+    void runBatch(true)
     return { queued: list.length }
   })
-  handle('replies:retry', (messageId) => { const m = MessageRepo.get(messageId); if (!m) return; AiReplyRepo.upsert(m.id, m.threadId, m.accountId, 'pending'); changed(); void runBatch() })
+  handle('replies:retry', (messageId) => { const m = MessageRepo.get(messageId); if (!m) return; AiReplyRepo.upsert(m.id, m.threadId, m.accountId, 'pending'); changed(); void runBatch(true) })
   handle('replies:stop', () => { stopRequested = true; for (const r of AiReplyRepo.list(['pending'])) AiReplyRepo.setStatus(r.messageId, 'dismissed'); changed() })
   handle('replies:dismiss', (messageId) => { AiReplyRepo.setStatus(messageId, 'dismissed'); changed() })
   handle('replies:update', (messageId, text) => { AiReplyRepo.setText(messageId, text) })

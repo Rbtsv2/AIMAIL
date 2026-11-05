@@ -1,11 +1,12 @@
 // src/renderer/src/layout/Sidebar.tsx
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Inbox, Star, Send, FileText, Archive, Trash2, AlertOctagon, Folder as FolderIcon, FolderPlus, Plus, Settings, Sparkles, Pencil, CornerLeftUp, ChevronRight, Users, CalendarDays, MessageSquare, MessageSquarePlus, Pin, PinOff, X } from 'lucide-react'
+import { Inbox, Star, Send, FileText, Archive, Trash2, AlertOctagon, Folder as FolderIcon, FolderPlus, Plus, Settings, Sparkles, Pencil, CornerLeftUp, ChevronRight, Users, CalendarDays, MessageSquare, MessageSquarePlus, Pin, PinOff, X, Search } from 'lucide-react'
 import type { Folder } from '@shared/models/Folder'
 import { useAccounts } from '@/stores/accounts.store'
 import { useMail } from '@/stores/mail.store'
 import { useUi } from '@/stores/ui.store'
+import { offerRuleAfterMove, collectSenders } from '@/features/rules/offerRule'
 import { useChat } from '@/stores/chat.store'
 import { useReplies } from '@/stores/replies.store'
 import { MailCheck } from 'lucide-react'
@@ -68,11 +69,11 @@ function RepliesEntry() {
   const generating = useReplies((s) => s.counts.generating)
   const hubOpen = useReplies((s) => s.hubOpen)
   const selected = useMail((s) => s.selectedId)
-  if (!ready && !generating) return null
+  // toujours visible : c'est l'accès au hub (préparer des réponses, ignorées, répondues), même sans réponse en attente
   return (
     <button className={`sidebar-item no-drag ${hubOpen && !selected ? 'active' : ''}`} style={{ paddingLeft: 8 }} onClick={() => { useReplies.getState().setHub(true); useChat.getState().clear(); void useMail.getState().select(null) }}>
       <MailCheck size={15} /><span className="label">À répondre</span>
-      {generating > 0 ? <span className="count" style={{ color: 'var(--text-3)' }}>{generating}…</span> : <span className="count" style={{ color: 'var(--accent)' }}>{ready}</span>}
+      {generating > 0 ? <span className="count" style={{ color: 'var(--text-3)' }}>{generating}…</span> : ready > 0 ? <span className="count" style={{ color: 'var(--accent)' }}>{ready}</span> : null}
     </button>
   )
 }
@@ -102,22 +103,23 @@ function depthOf(f: Folder): number {
 }
 const leafOf = (f: Folder) => (f.path.split(f.delimiter).pop() ?? f.name).trim()
 
-function Item({ f, label, count, active, onClick, onContext, onRename, onDelete, depth = 0, editing, onEditDone, container, index }: {
+function Item({ f, label, count, total, active, onClick, onContext, onRename, onDelete, depth = 0, editing, onEditDone, container, index }: {
   index?: number
   onDelete?: () => void
-  f?: Folder; label: string; count?: number; active: boolean; onClick: () => void; onContext?: (e: React.MouseEvent) => void; onRename?: () => void; depth?: number
+  f?: Folder; label: string; count?: number; total?: number; active: boolean; onClick: () => void; onContext?: (e: React.MouseEvent) => void; onRename?: () => void; depth?: number
   editing?: boolean; onEditDone?: (name: string | null) => void; container?: boolean
 }) {
   const Icon = f ? (ROLE_ICON[f.role] ?? FolderIcon) : FolderIcon
   const over = useDnd((s) => !!f && s.hover === f.id)
+  const foreign = useDnd((s) => !!f && !!s.payload && (s.payload.kind === 'thread' || s.payload.kind === 'threads') && !!s.payload.accountId && s.payload.accountId !== f.accountId)
   const dragging = useDnd((s) => !!f && s.payload?.kind === 'folder' && s.payload.id === f.id)
   const inputRef = useRef<HTMLInputElement>(null)
   const done = useRef(false)
   useEffect(() => { if (editing) { done.current = false; setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select() }, 10) } }, [editing])
   const finish = (v: string | null) => { if (done.current) return; done.current = true; onEditDone?.(v) }
   return (
-    <motion.button layout={settled() ? 'position' : false} initial={settled() ? false : { opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={settled() ? { type: 'spring', stiffness: 520, damping: 38, mass: 0.7 } : { duration: 0.35, delay: Math.min((index ?? 0) * 0.022, 0.5), ease: [0.2, 0.7, 0.2, 1] }} className={`sidebar-item no-drag ${active ? 'active' : ''} ${over ? 'drop' : ''} ${dragging ? 'lifting' : ''} ${container ? 'container' : ''}`} style={{ paddingLeft: 8 + depth * 14 }}
-      data-drop-folder={f?.id}
+    <motion.button layout={settled() ? 'position' : false} initial={settled() ? false : { opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={settled() ? { type: 'spring', stiffness: 520, damping: 38, mass: 0.7 } : { duration: 0.35, delay: Math.min((index ?? 0) * 0.022, 0.5), ease: [0.2, 0.7, 0.2, 1] }} className={`sidebar-item no-drag ${active ? 'active' : ''} ${over ? 'drop' : ''} ${dragging ? 'lifting' : ''} ${container ? 'container' : ''} ${foreign ? 'foreign' : ''}`} style={{ paddingLeft: 8 + depth * 14 }}
+      data-drop-folder={f?.id} data-drop-account={f?.accountId}
       onKeyDown={(e) => { if (!editing && (e.key === 'Delete' || (e.key === 'Backspace' && (e.metaKey || e.ctrlKey))) && onDelete) { e.preventDefault(); onDelete() } }}
       onClick={() => { if (!clickSuppressed() && !container) onClick() }} onContextMenu={onContext}
       onDoubleClick={(e) => { if (f?.role === 'custom' && !editing) { e.preventDefault(); onRename?.() } }}
@@ -128,7 +130,7 @@ function Item({ f, label, count, active, onClick, onContext, onRename, onDelete,
             onKeyDown={(e) => { if (e.key === 'Enter') finish((e.target as HTMLInputElement).value); if (e.key === 'Escape') finish(null) }}
             onBlur={(e) => finish(e.target.value)} />
         : <span className="label">{label}</span>}
-      {!!count && !editing && <span className="count">{count}</span>}
+      {!editing && (!!count || !!total) && <span className="counts">{!!count && <span className="count unread">{count}</span>}{!!total && <span className="count total">{total}</span>}</span>}
     </motion.button>
   )
 }
@@ -225,6 +227,8 @@ export function Sidebar() {
   const [menu, setMenu] = useState<Menu | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [creating, setCreating] = useState<{ accountId: string; parentId: string | null } | null>(null)
+  // filtre des dossiers par compte (saisie sous l'adresse) ; les dossiers système restent toujours visibles
+  const [folderQuery, setFolderQuery] = useState<Record<string, string>>({})
   const chats = useChat((s) => s.list)
   const chatId = useChat((s) => s.chatId)
   useEffect(() => { void useChat.getState().loadList() }, [])
@@ -278,8 +282,10 @@ export function Sidebar() {
       else if (payload.kind === 'threads') void useMail.getState().bulk('folder', target.id)
       else void run(async () => {
         const r = await invoke('threads:get', payload.id)
+        const senders = await collectSenders([payload.id])
         await invoke('messages:moveToFolder', r.messages.map((m) => m.id), target.id)
         if (useMail.getState().selectedId === payload.id) useMail.getState().selectRelative(1)
+        void offerRuleAfterMove(senders, target.id)
       }, `Déplacé vers ${name}`)
     })
     setResolver((x, y, payload) => (payload.kind === 'folder' ? resolveFolderDrop(x, y, payload.id) : payload.kind === 'account' ? resolveAccountDrop(y, payload.id) : null))
@@ -298,8 +304,9 @@ export function Sidebar() {
   }
 
   const unifiedCount = (role: string) => Object.values(folders).flat().filter((f) => f.role === role).reduce((n, f) => n + f.unread, 0)
+  const unifiedTotal = (role: string) => Object.values(folders).flat().filter((f) => f.role === role).reduce((n, f) => n + (f.total ?? 0), 0)
   // le hub « À répondre » ouvert (sans message sélectionné) est la vue active : aucun dossier ne reste surligné
-  const hubOpenWithItems = useReplies((s) => s.hubOpen && (s.counts.ready > 0 || s.counts.generating > 0))
+  const hubOpenWithItems = useReplies((s) => s.hubOpen)
   const selectedThread = useMail((s) => s.selectedId)
   const hubActive = hubOpenWithItems && !selectedThread
   const isUnified = (role: string) => !hubActive && !view.accountId && view.role === role
@@ -313,16 +320,27 @@ export function Sidebar() {
             <div className="sidebar-account">Toutes les boîtes</div>
             <RepliesEntry />
             {(['inbox', 'starred', 'sent', 'drafts', 'archive'] as const).map((r, i) => (
-              <Item key={r} index={i} label={ROLE_LABEL[r]} count={r === 'inbox' ? unifiedCount(r) : undefined} active={isUnified(r)} onClick={() => { useReplies.getState().setHub(false); setView({ role: r, label: ROLE_LABEL[r] }) }} />
+              <Item key={r} index={i} label={ROLE_LABEL[r]} count={unifiedCount(r) || undefined} total={unifiedTotal(r) || undefined} active={isUnified(r)} onClick={() => { useReplies.getState().setHub(false); setView({ role: r, label: ROLE_LABEL[r] }) }} />
             ))}
           </div>
         )}
         {accounts.map((a, ai) => {
-          const fs = orderFolders((folders[a.id] ?? []).filter((f) => f.role !== 'all'))
+          const fsAll = orderFolders((folders[a.id] ?? []).filter((f) => f.role !== 'all'))
+          const fq = (folderQuery[a.id] ?? '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          const matchFq = (f: Folder) => !fq || f.role !== 'custom' || f.path.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(fq)
+          const fs = fq ? fsAll.filter(matchFq) : fsAll
+          const showSearch = fsAll.filter((f) => f.role === 'custom').length >= 8
           return (
             <motion.div className="sidebar-section" key={a.id} initial={settled() ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4, delay: Math.min(0.08 + ai * 0.06, 0.5) }} onContextMenu={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, folder: null, accountId: a.id }) } }}>
               <AccountHeader accountId={a.id} color={a.color} email={a.email} unread={fs.find((f) => f.role === 'inbox')?.unread ?? 0} collapsed={collapsed.has(a.id)} onToggle={() => toggleAccount(a.id)} onCreate={() => { setCollapsed((p) => { const n = new Set(p); n.delete(a.id); return n }); setCreating({ accountId: a.id, parentId: null }) }} />
               <div className={`sidebar-folders ${collapsed.has(a.id) && creating?.accountId !== a.id ? 'hidden' : ''}`}>
+              {showSearch && (
+                <div className="sidebar-folder-search no-drag">
+                  <Search size={12} />
+                  <input value={folderQuery[a.id] ?? ''} placeholder="Filtrer les dossiers…" onChange={(e) => setFolderQuery({ ...folderQuery, [a.id]: e.target.value })} onKeyDown={(e) => { if (e.key === 'Escape') setFolderQuery({ ...folderQuery, [a.id]: '' }) }} />
+                  {folderQuery[a.id] && <button className="icon-btn" style={{ width: 18, height: 18 }} onClick={() => setFolderQuery({ ...folderQuery, [a.id]: '' })}><X size={11} /></button>}
+                </div>
+              )}
               {(() => {
                 const parent = creating?.accountId === a.id && creating.parentId ? fs.find((x) => x.id === creating.parentId) : undefined
                 let insertAfter = -1
@@ -343,8 +361,8 @@ export function Sidebar() {
                   </div>
                 ) : null
                 const items = fs.map((f, i) => (
-                  <Item key={f.id} index={5 + ai * 3 + i} onDelete={() => void deleteFolderFlow(f, run)} f={f} depth={f.role === 'custom' ? depthOf(f) : 0} label={f.role === 'custom' ? leafOf(f) : ROLE_LABEL[f.role]} container={f.noselect}
-                    count={!f.noselect && (f.role === 'inbox' || f.role === 'custom') ? f.unread : undefined}
+                  <Item key={f.id} index={5 + ai * 3 + i} onDelete={() => void deleteFolderFlow(f, run)} f={f} depth={f.role === 'custom' && !fq ? depthOf(f) : 0} label={f.role === 'custom' ? (fq && depthOf(f) > 0 ? f.path.split(f.delimiter).slice(1).join(' / ') : leafOf(f)) : ROLE_LABEL[f.role]} container={f.noselect}
+                    count={!f.noselect ? f.unread || undefined : undefined} total={!f.noselect ? f.total || undefined : undefined}
                     active={!hubActive && view.folderId === f.id}
                     onClick={() => { useReplies.getState().setHub(false); setView({ accountId: a.id, folderId: f.id, label: f.role === 'custom' ? leafOf(f) : ROLE_LABEL[f.role] }) }}
                     onContext={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, folder: f, accountId: a.id }) }}
