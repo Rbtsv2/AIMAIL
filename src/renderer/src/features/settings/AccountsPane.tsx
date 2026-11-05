@@ -25,6 +25,13 @@ export function AccountsPane() {
             <button className="icon-btn" aria-label="Retirer ce compte" onClick={() => { if (confirm(`Retirer ${a.email} de cette application ?`)) void remove(a.id) }}><Trash2 size={15} /></button>
           </Row>
           <Row label="Nom d’expéditeur"><Input defaultValue={a.name} onBlur={(e) => e.target.value !== a.name && void update(a.id, { name: e.target.value })} /></Row>
+          {a.provider === 'gmail' && a.auth === 'password' && (
+            <Row label="Google Agenda et Contacts" hint={a.googleData ? 'Connectés : l’agenda et les contacts de ce compte sont synchronisés.' : 'Le mot de passe d’application ne donne accès qu’aux mails ; autorisez l’agenda et les contacts séparément (sans accès à la messagerie).'}>
+              {a.googleData
+                ? <button className="btn quiet" onClick={async () => { await invoke('accounts:googleData', a.id, 'disconnect'); await useAccounts.getState().load(); useUi.getState().toast({ text: 'Google Agenda et Contacts déconnectés' }) }}>Déconnecter</button>
+                : <button className="btn primary" onClick={async () => { try { useUi.getState().toast({ text: 'Terminez l’autorisation dans votre navigateur…' }); await invoke('accounts:googleData', a.id, 'connect'); await useAccounts.getState().load(); useUi.getState().toast({ text: 'Google Agenda et Contacts connectés' }) } catch (e: any) { useUi.getState().toast({ text: e?.message ?? 'Échec de la connexion' }) } }}>Connecter</button>}
+            </Row>
+          )}
           <Row label="Signature par défaut">
             <Select value={a.defaultSignatureId ?? ''} onChange={(e) => void update(a.id, { defaultSignatureId: e.target.value || null })}>
               <option value="">Aucune</option>

@@ -1,5 +1,7 @@
+// src/main/auth/oauth/OAuthFlow.ts
 import { shell } from 'electron'
 import { createServer } from 'http'
+import { log } from '../../utils/logger'
 import { createHash, randomBytes } from 'crypto'
 import { OAUTH_LOOPBACK_PORT } from '@shared/constants'
 
@@ -10,6 +12,7 @@ export interface OAuthConfig {
   tokenUrl: string
   scopes: string[]
   extraAuthParams?: Record<string, string>
+  loopback?: { host?: string; path?: string }   // adresse de retour : Google accepte 127.0.0.1 + n'importe quel chemin, Microsoft veut « http://localhost » (tout port)
 }
 
 export interface OAuthTokens {
@@ -22,15 +25,19 @@ export interface OAuthTokens {
 const b64url = (b: Buffer) => b.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 
 export async function runOAuthFlow(cfg: OAuthConfig): Promise<OAuthTokens> {
+  if (!cfg.clientId) throw new Error('Identifiant OAuth non configuré pour ce fournisseur : cette version a été construite sans GOOGLE_CLIENT_ID / MS_CLIENT_ID. Ajoutez le compte en IMAP avec un mot de passe d’application, ou reconstruisez l’application avec les identifiants.')
   const verifier = b64url(randomBytes(48))
   const challenge = b64url(createHash('sha256').update(verifier).digest())
   const state = b64url(randomBytes(16))
-  const redirectUri = `http://127.0.0.1:${OAUTH_LOOPBACK_PORT}/callback`
+  // port de retour : celui par défaut, sinon un port libre (Google et Microsoft acceptent tout port sur 127.0.0.1 pour une application de bureau)
+  const host = cfg.loopback?.host ?? '127.0.0.1'
+  const path = cfg.loopback?.path ?? '/callback'
+  let redirectUri = `http://${host}:${OAUTH_LOOPBACK_PORT}${path}`
 
   const code = await new Promise<string>((resolve, reject) => {
     const server = createServer((req, res) => {
       const url = new URL(req.url ?? '/', redirectUri)
-      if (url.pathname !== '/callback') { res.writeHead(404); res.end(); return }
+      if (url.pathname !== path) { res.writeHead(404); res.end(); return }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
       res.end('<html><body style="font-family:-apple-system,system-ui;display:grid;place-items:center;height:100vh;margin:0;color:#1d1d1f"><p>Connexion réussie. Vous pouvez fermer cette fenêtre.</p></body></html>')
       server.close()
@@ -39,7 +46,11 @@ export async function runOAuthFlow(cfg: OAuthConfig): Promise<OAuthTokens> {
       if (err) return reject(new Error(err))
       resolve(url.searchParams.get('code') ?? '')
     })
-    server.listen(OAUTH_LOOPBACK_PORT, '127.0.0.1', () => {
+    server.on('error', (e: any) => { if (e?.code === 'EADDRINUSE') server.listen(0, '127.0.0.1'); else reject(e) })
+    server.listen(OAUTH_LOOPBACK_PORT, '127.0.0.1')
+    server.on('listening', () => {
+      const addr = server.address(); const port = typeof addr === 'object' && addr ? addr.port : OAUTH_LOOPBACK_PORT
+      redirectUri = `http://${host}:${port}${path}`
       const u = new URL(cfg.authUrl)
       u.searchParams.set('client_id', cfg.clientId)
       u.searchParams.set('redirect_uri', redirectUri)
@@ -58,7 +69,7 @@ export async function runOAuthFlow(cfg: OAuthConfig): Promise<OAuthTokens> {
 }
 
 export async function refreshTokens(cfg: OAuthConfig, refreshToken: string): Promise<OAuthTokens> {
-  const t = await exchange(cfg, { grant_type: 'refresh_token', refresh_token: refreshToken })
+  const t = await exchange(cfg, { grant_type: 'refresh_token', refresh_token: refreshToken, scope: cfg.scopes.join(' ') })
   return { ...t, refreshToken: t.refreshToken || refreshToken }
 }
 
@@ -68,6 +79,7 @@ async function exchange(cfg: OAuthConfig, params: Record<string, string>): Promi
   const res = await fetch(cfg.tokenUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body })
   if (!res.ok) throw new Error(`oauth token ${res.status}: ${await res.text()}`)
   const json = (await res.json()) as any
+  log.info('oauth', `jeton obtenu — scopes accordés : ${json.scope ?? '(non renseigné)'}`)
   return {
     accessToken: json.access_token,
     refreshToken: json.refresh_token ?? '',

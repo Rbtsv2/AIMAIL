@@ -6,6 +6,7 @@ import { MessageRepo } from '../db/repositories/MessageRepo'
 import { Credentials } from '../auth/Credentials'
 import { GoogleCalendar } from './GoogleCalendar'
 import { CalDav } from './CalDav'
+import { IcsSubscription } from './IcsSubscription'
 import { MicrosoftCalendar } from './MicrosoftCalendar'
 import { graphAuthorize, hasGraph } from '../auth/oauth/microsoftGraph'
 import { expand, parseIcs, buildIcs } from './ical'
@@ -78,6 +79,14 @@ export const CalendarService = {
     return cals
   },
 
+  async addIcs(input: { url: string; name?: string; color?: string }): Promise<Calendar> {
+    const p = await IcsSubscription.probe(input.url)
+    const cal = CalendarRepo.saveCalendar({ kind: 'ics', name: input.name?.trim() || p.name, color: input.color ?? '#0a84ff', url: input.url.trim(), accountId: null, remoteId: null, enabled: true, isDefault: false, readOnly: true })
+    await IcsSubscription.sync(cal)
+    bus.emitEvent('calendar:changed', {})
+    return cal
+  },
+
   async removeCalendar(calId: string): Promise<void> {
     CalendarRepo.removeCalendar(calId)
     Credentials.remove(`caldav:${calId}`)
@@ -95,6 +104,7 @@ export const CalendarService = {
         try {
           if (cal.kind === 'google') await GoogleCalendar.sync(AccountRepo.get(cal.accountId!)!, cal, from, to)
           else if (cal.kind === 'caldav') await CalDav.sync(cal, from, to)
+          else if (cal.kind === 'ics') await IcsSubscription.sync(cal)
           else if (cal.kind === 'microsoft') await MicrosoftCalendar.sync(AccountRepo.get(cal.accountId!)!, cal, from, to)
         } catch (e: any) { log.warn('calendar', cal.name, e?.message ?? e); errors.push(`${cal.name} : ${e?.message ?? e}`) }
       }

@@ -1,3 +1,4 @@
+import { hasGoogleData } from '../../auth'
 // src/main/db/repositories/AccountRepo.ts
 import { setOwnAddresses } from './ThreadRepo'
 import { getDb, j, p, id } from '../index'
@@ -8,6 +9,7 @@ const COLORS = ['#4F6BED', '#2EAF8A', '#E0745A', '#8E5BD8', '#D6A42C', '#3C9BD9'
 function row(r: any): Account {
   return {
     id: r.id, email: r.email, name: r.name, provider: r.provider, auth: r.auth,
+    googleData: r.auth === 'oauth-google' || hasGoogleData({ id: r.id, auth: r.auth } as Account),
     imap: p(r.imap_json, { host: '', port: 993, secure: true }),
     smtp: p(r.smtp_json, { host: '', port: 465, secure: true }),
     color: r.color, defaultSignatureId: r.default_signature_id,

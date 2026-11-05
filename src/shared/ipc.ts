@@ -70,6 +70,7 @@ export interface IpcInvoke {
   'accounts:update': (id: string, patch: Partial<Account>) => Account
   'accounts:remove': (id: string) => void
   'accounts:reorder': (orderedIds: string[]) => void
+  'accounts:googleData': (accountId: string, action: 'connect' | 'disconnect' | 'status') => { connected: boolean; email?: string }
   'accounts:oauth': (provider: 'google' | 'microsoft') => { email: string; name: string; accessToken: string; refreshToken: string; expiresAt: number }
   'accounts:test': (input: AccountInput) => { ok: boolean; error?: string }
 
@@ -87,6 +88,7 @@ export interface IpcInvoke {
   'threads:get': (threadId: string) => { thread: Thread; messages: Message[]; events: ThreadEvent[] }
   'threads:messageIds': (threadIds: string[]) => string[]
   'messages:body': (messageId: string) => Message
+  'messages:prefetch': (threadId: string) => void
   'messages:flag': (ids: string[], patch: { unread?: boolean; starred?: boolean }) => void
   'messages:move': (ids: string[], folderRole: string) => void
   'messages:delete': (ids: string[]) => void
@@ -165,6 +167,7 @@ export interface IpcInvoke {
   'calendar:sync': () => string[]
   'calendar:addGoogle': (accountId: string) => Calendar[]
   'calendar:addCaldav': (input: CaldavInput) => Calendar[]
+  'calendar:addIcs': (input: { url: string; name?: string; color?: string }) => Calendar
   'calendar:addMicrosoft': (accountId: string) => Calendar[]
   'calendar:invitation': (messageId: string) => Invitation | null
   'calendar:respond': (messageId: string, status: 'accepted' | 'declined' | 'tentative') => void

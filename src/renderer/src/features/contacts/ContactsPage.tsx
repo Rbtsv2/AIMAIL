@@ -45,7 +45,7 @@ export function ContactsPage() {
   const syncGoogle = async (accountId: string) => { setBusy(true); try { const r = await invoke('contacts:syncGoogle', accountId); toast({ text: `Google : ${r.imported} ajoutés, ${r.updated} mis à jour`, ttl: 5000 }); await reload() } catch (e: any) { toast({ text: String(e?.message ?? e).replace(/^Error invoking remote method '[^']+': Error: /, ''), ttl: 8000 }) } finally { setBusy(false) } }
   const write = (c: Contact, email: string) => { useCompose.getState().openNew(); setTimeout(() => useCompose.getState().update({ to: [{ name: c.displayName, address: email }] }), 50) }
   const copy = async (v: string) => { await navigator.clipboard.writeText(v); toast({ text: 'Copié', ttl: 1200 }) }
-  const googleAccounts = accounts.filter((a) => a.auth === 'oauth-google')
+  const googleAccounts = accounts.filter((a) => a.googleData)
 
   return (
     <section className="settings-page contacts">

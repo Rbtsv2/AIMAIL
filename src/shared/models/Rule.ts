@@ -8,6 +8,7 @@ export type RuleAction =
   | { type: 'star' }
   | { type: 'spam' }
   | { type: 'trash' }
+  | { type: 'inbox' }          // remettre en Réception (rattrapage depuis Indésirables)
   | { type: 'category'; value: 'urgent' | 'action' | 'info' | 'newsletter' }
 export interface Rule {
   id: string
@@ -19,5 +20,6 @@ export interface Rule {
   conditions: RuleCondition[]
   actions: RuleAction[]
   stop: boolean
+  scope: 'inbox' | 'spam' | 'both'   // dossiers où la règle s'applique
   createdAt: number
 }

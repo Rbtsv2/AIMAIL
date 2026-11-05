@@ -41,15 +41,18 @@ function MuteSwitch({ address }: { address: string }) {
 export function MessageCard({ m, threadId, expandedByDefault }: { m: Message; threadId: string; expandedByDefault: boolean }) {
   const [open, setOpen] = useState(expandedByDefault)
   const [full, setFull] = useState<Message | null>(bodyCache.get(m.id) ?? null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [retry, setRetry] = useState(0)
   const delay = useSettings((s) => s.app?.markReadDelayMs ?? 800)
 
   useEffect(() => {
     if (!open) return
     let alive = true
-    if (!bodyCache.has(m.id)) void invoke('messages:body', m.id).then((x) => { bodyCache.set(m.id, x); if (alive) setFull(x) })
+    setLoadError(null)
+    if (!bodyCache.has(m.id)) void invoke('messages:body', m.id).then((x) => { bodyCache.set(m.id, x); if (alive) setFull(x) }, (e: any) => { if (alive) setLoadError(e?.message ?? 'Impossible de charger le message') })
     const t = m.unread ? setTimeout(() => void useMail.getState().flag([m.id], { unread: false }), delay) : null
     return () => { alive = false; if (t) clearTimeout(t) }
-  }, [open, m.id])
+  }, [open, m.id, retry])
 
   const msg = full ?? m
   const atts = msg.attachments.filter((a) => !a.inline)
@@ -68,7 +71,7 @@ export function MessageCard({ m, threadId, expandedByDefault }: { m: Message; th
       {open && (
         <>
           {full && (full.attachments.some((a) => /text\/calendar|application\/ics/i.test(a.mimeType) || /\.ics$/i.test(a.filename)) ? <InvitationCard messageId={m.id} /> : <EventSuggestion messageId={m.id} />)}
-          {full ? <MessageBody m={full} /> : <div className="msg-body"><div className="skeleton" style={{ width: '60%', marginBottom: 8 }} /><div className="skeleton" style={{ width: '90%', marginBottom: 8 }} /><div className="skeleton" style={{ width: '40%' }} /></div>}
+          {full ? <MessageBody m={full} /> : loadError ? <div className="msg-body msg-load-error"><span>{loadError}</span><button className="btn quiet" onClick={() => setRetry((r) => r + 1)}>Réessayer</button></div> : <div className="msg-body"><div className="skeleton" style={{ width: '60%', marginBottom: 8 }} /><div className="skeleton" style={{ width: '90%', marginBottom: 8 }} /><div className="skeleton" style={{ width: '40%' }} /></div>}
           {atts.length > 0 && <div className="msg-atts">{atts.map((a) => <AttachmentChip key={a.id} a={a} />)}</div>}
           <div style={{ display: 'flex', gap: 2, padding: '0 12px 10px' }}>
             <button className="btn quiet" onClick={() => useCompose.getState().openReply(msg, 'reply', threadId)}><Reply size={14} /> Répondre</button>

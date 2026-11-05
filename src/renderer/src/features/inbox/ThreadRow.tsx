@@ -7,6 +7,7 @@ import { displayName } from '@/lib/text'
 import { useMail } from '@/stores/mail.store'
 import { useAccounts } from '@/stores/accounts.store'
 import { beginDrag, clickSuppressed, useDnd } from '@/lib/dnd'
+import { invoke } from '@/lib/api'
 
 const CAT_LABEL: Record<string, string> = { urgent: 'Urgent', action: 'Action', information: 'Info', newsletter: 'Newsletter', spam: 'Spam' }
 
@@ -17,7 +18,7 @@ export const ThreadRow = memo(function ThreadRow({ t, selected, showAccount, onC
   const names = t.participants.slice(0, 3).map(displayName).join(', ')
   const lifting = useDnd((s) => (s.payload?.kind === 'thread' && s.payload.id === t.id) || (s.payload?.kind === 'threads' && !!s.payload.ids?.includes(t.id)))
   return (
-    <div role="option" aria-selected={selected} tabIndex={-1} className={`row ${selected ? 'selected' : ''} ${inSelection ? 'multi' : ''} ${t.unread ? 'unread' : ''} ${lifting ? 'lifting' : ''}`} onClick={(e) => { if (!clickSuppressed()) clickSelect(t.id, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey }) }} onContextMenu={onContext}
+    <div role="option" aria-selected={selected} tabIndex={-1} className={`row ${selected ? 'selected' : ''} ${inSelection ? 'multi' : ''} ${t.unread ? 'unread' : ''} ${lifting ? 'lifting' : ''}`} onClick={(e) => { if (!clickSuppressed()) clickSelect(t.id, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey }) }} onContextMenu={onContext} onMouseEnter={() => { void invoke('messages:prefetch', t.id) }}
       data-thread={t.id}
       onPointerDown={(e) => {
         if ((e.target as HTMLElement).closest('.row-actions') || e.ctrlKey || e.metaKey || e.shiftKey) return

@@ -21,7 +21,7 @@ const OPS: Record<RuleField, { v: RuleOp; l: string }[]> = {
   account: [{ v: 'is', l: 'est' }]
 }
 const CATS = [{ v: 'urgent', l: 'Urgent' }, { v: 'action', l: 'Action' }, { v: 'info', l: 'Information' }, { v: 'newsletter', l: 'Newsletter' }, { v: 'spam', l: 'Spam' }]
-const ACTIONS: { v: RuleAction['type']; l: string }[] = [{ v: 'move', l: 'Déplacer vers le dossier' }, { v: 'markRead', l: 'Marquer comme lu' }, { v: 'star', l: 'Suivre (étoile)' }, { v: 'category', l: 'Attribuer la catégorie' }, { v: 'spam', l: 'Mettre dans Indésirables' }, { v: 'trash', l: 'Mettre à la Corbeille' }]
+const ACTIONS: { v: RuleAction['type']; l: string }[] = [{ v: 'move', l: 'Déplacer vers le dossier' }, { v: 'markRead', l: 'Marquer comme lu' }, { v: 'star', l: 'Suivre (étoile)' }, { v: 'category', l: 'Attribuer la catégorie' }, { v: 'spam', l: 'Mettre dans Indésirables' }, { v: 'trash', l: 'Mettre à la Corbeille' }, { v: 'inbox', l: 'Remettre en Réception' }]
 const RETENTION = [{ v: '', l: 'Jamais' }, { v: '7', l: 'Après 7 jours' }, { v: '14', l: 'Après 14 jours' }, { v: '30', l: 'Après 30 jours' }, { v: '90', l: 'Après 90 jours' }, { v: '180', l: 'Après 6 mois' }, { v: '365', l: 'Après 1 an' }]
 
 // champ expéditeur / destinataire : suggestions depuis les contacts et les adresses collectées
@@ -48,7 +48,7 @@ function AddressInput({ value, onChange, placeholder }: { value: string; onChang
   )
 }
 
-const newRule = (accountId: string | null): Rule => ({ id: '', name: 'Nouvelle règle', enabled: true, sortOrder: 999, accountId, match: 'all', conditions: [{ field: 'from', op: 'contains', value: '' }], actions: [{ type: 'move', folderId: '' }], stop: true, createdAt: 0 })
+const newRule = (accountId: string | null): Rule => ({ id: '', name: 'Nouvelle règle', enabled: true, sortOrder: 999, accountId, match: 'all', conditions: [{ field: 'from', op: 'contains', value: '' }], actions: [{ type: 'move', folderId: '' }], stop: true, scope: 'inbox', createdAt: 0 })
 const leafOf = (f: Folder) => f.path.split(f.delimiter).pop() ?? f.name
 
 export function RulesPane() {
@@ -97,7 +97,7 @@ export function RulesPane() {
           <div key={r.id} className="frow rule-row">
             <div className="rule-order"><button className="icon-btn" onClick={() => void move(i, -1)} disabled={i === 0}><ChevronUp size={13} /></button><GripVertical size={13} style={{ color: 'var(--text-3)' }} /><button className="icon-btn" onClick={() => void move(i, 1)} disabled={i === rules.length - 1}><ChevronDown size={13} /></button></div>
             <div className="rule-main" onClick={() => setEdit(r)} role="button">
-              <div className="rule-name">{r.name}{r.accountId && <span className="rule-acc">{accounts.find((a) => a.id === r.accountId)?.email}</span>}</div>
+              <div className="rule-name">{r.name}{r.accountId && <span className="rule-acc">{accounts.find((a) => a.id === r.accountId)?.email}</span>}{(r.scope ?? 'inbox') !== 'inbox' && <span className="rule-acc">{r.scope === 'both' ? 'Réception + Indésirables' : 'Indésirables'}</span>}</div>
               <div className="rule-desc">{describe(r)}</div>
             </div>
             <Switch on={r.enabled} onChange={async (v) => { await invoke('rules:save', { ...r, enabled: v }); load() }} />
@@ -144,6 +144,9 @@ export function RulesPane() {
               </div>
             ))}
             <button className="btn quiet rule-add" onClick={() => setEdit({ ...edit, actions: [...edit.actions, { type: 'markRead' }] })}><Plus size={13} /> Ajouter une action</button>
+          </Row>
+          <Row label="S’applique aux messages arrivant dans" hint="« Indésirables » permet de rattraper un mail mal filtré par le serveur, avec l’action « Remettre en Réception ».">
+            <Select value={edit.scope ?? 'inbox'} onChange={(e) => setEdit({ ...edit, scope: e.target.value as Rule['scope'] })} style={{ width: 220 }}><option value="inbox">Réception</option><option value="spam">Indésirables</option><option value="both">Réception et Indésirables</option></Select>
           </Row>
           <Row label="Arrêter après cette règle" hint="Les règles suivantes ne sont pas évaluées pour ce message."><Switch on={edit.stop} onChange={(v) => setEdit({ ...edit, stop: v })} /></Row>
           <Row label="">

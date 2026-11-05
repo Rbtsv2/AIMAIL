@@ -1,4 +1,5 @@
 // src/main/index.ts
+import { loadDevEnv } from './env'
 import { app, BrowserWindow, dialog, Notification, nativeTheme } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { createWindow, getWindow } from './window'
@@ -50,6 +51,7 @@ function fatal(where: string, e: unknown): void {
 process.on('uncaughtException', (e) => { if (!app.isReady()) fatal('uncaughtException', e); else log.error('uncaught', e) })
 process.on('unhandledRejection', (e) => log.error('unhandledRejection', e))
 
+loadDevEnv()
 app.whenReady().then(async () => {
   try {
   electronApp.setAppUserModelId('com.chilloutnetworks.aimail')

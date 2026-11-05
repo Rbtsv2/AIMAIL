@@ -17,10 +17,13 @@ export function registerRulesIpc(): void {
     const accounts = AccountRepo.list().filter((a) => !opts.accountId || a.id === opts.accountId)
     let touched = 0, moved = 0
     for (const a of accounts) {
-      const inbox = FolderRepo.byRole(a.id, 'inbox'); if (!inbox) continue
-      const ids = (getDb().prepare('SELECT id FROM messages WHERE folder_id = ? AND date >= ? ORDER BY date DESC LIMIT 2000').all(inbox.id, since) as any[]).map((r) => r.id)
-      const r = await applyRules(ids, { onlyRuleId: opts.ruleId })
-      touched += r.touched; moved += r.moved.length
+      for (const role of ['inbox', 'spam'] as const) {
+        const f = FolderRepo.byRole(a.id, role); if (!f) continue
+        const ids = (getDb().prepare('SELECT id FROM messages WHERE folder_id = ? AND date >= ? ORDER BY date DESC LIMIT 2000').all(f.id, since) as any[]).map((r) => r.id)
+        if (!ids.length) continue
+        const r = await applyRules(ids, { onlyRuleId: opts.ruleId, folderRole: role })
+        touched += r.touched; moved += r.moved.length
+      }
     }
     return { touched, moved }
   })

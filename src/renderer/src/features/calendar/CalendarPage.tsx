@@ -35,7 +35,9 @@ export function CalendarPage() {
   const toast = useUi((s) => s.toast)
   const close = () => useUi.getState().setCalendar(false)
   const byDay = useOccByDay(occ)
-  const [adding, setAdding] = useState<'none' | 'caldav'>('none')
+  const [adding, setAdding] = useState<'none' | 'caldav' | 'ics'>('none')
+  const [icsUrl, setIcsUrl] = useState('')
+  const addIcs = async () => { setBusy(true); try { const c = await invoke('calendar:addIcs', { url: icsUrl }); toast({ text: `Agenda « ${c.name} » ajouté` }); setAdding('none'); setIcsUrl(''); await refresh() } catch (e: any) { toast({ text: String(e?.message ?? e).replace(/^Error invoking remote method '[^']+': Error: /, ''), ttl: 8000 }) } finally { setBusy(false) } }
   const [cd, setCd] = useState<CaldavInput>({ name: '', url: '', username: '', password: '', accountId: null })
   const [busy, setBusy] = useState(false)
 
@@ -78,9 +80,17 @@ export function CalendarPage() {
             </div>
           ))}
           <div className="cal-side-title" style={{ marginTop: 18 }}>Ajouter</div>
-          {accounts.filter((a) => a.auth === 'oauth-google').map((a) => <button key={a.id} className="btn quiet" disabled={busy} style={{ justifyContent: 'flex-start', width: '100%' }} onClick={() => void addGoogle(a.id)}><Globe size={14} /> <span>Google <small>{a.email}</small></span></button>)}
+          {accounts.filter((a) => a.googleData).map((a) => <button key={a.id} className="btn quiet" disabled={busy} style={{ justifyContent: 'flex-start', width: '100%' }} onClick={() => void addGoogle(a.id)}><Globe size={14} /> <span>Google <small>{a.email}</small></span></button>)}
           {accounts.filter((a) => a.auth === 'oauth-microsoft').map((a) => <button key={a.id} className="btn quiet" disabled={busy} style={{ justifyContent: 'flex-start', width: '100%' }} onClick={() => void addMicrosoft(a.id)}><Globe size={14} /> <span>Microsoft <small>{a.email}</small></span></button>)}
           <button className="btn quiet" style={{ justifyContent: 'flex-start', width: '100%' }} onClick={() => setAdding(adding === 'caldav' ? 'none' : 'caldav')}><Link2 size={14} /> <span>CalDAV <small>iCloud, OVH, Nextcloud…</small></span></button>
+          <button className="btn quiet" style={{ justifyContent: 'flex-start', width: '100%' }} onClick={() => setAdding(adding === 'ics' ? 'none' : 'ics')}><Link2 size={14} /> <span>Adresse iCal <small>Google Agenda sans autorisation, lecture seule</small></span></button>
+          {adding === 'ics' && (
+            <div className="form" style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-2)', lineHeight: 1.5 }}>Google Agenda : <a href="https://calendar.google.com/calendar/r/settings" onClick={(e) => { e.preventDefault(); window.open('https://calendar.google.com/calendar/r/settings') }}>Paramètres</a> → votre agenda → <b>Adresse secrète au format iCal</b> → copier. Fonctionne aussi avec un lien Outlook « Publier », Apple ou tout fichier .ics en ligne.</div>
+              <Input placeholder="https://calendar.google.com/calendar/ical/…/private-…/basic.ics" value={icsUrl} onChange={(e) => setIcsUrl(e.target.value)} />
+              <button className="btn primary" disabled={busy || !/^(https?|webcal):\/\//i.test(icsUrl.trim())} onClick={() => void addIcs()}>{busy ? 'Vérification…' : 'Ajouter'}</button>
+            </div>
+          )}
           {adding === 'caldav' && (
             <div className="form" style={{ marginTop: 8 }}>
               <Input placeholder="Adresse du serveur (ex. https://caldav.icloud.com)" value={cd.url} onChange={(e) => setCd({ ...cd, url: e.target.value })} />

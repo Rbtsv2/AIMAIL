@@ -7,6 +7,7 @@ import { ThreadRepo } from '../db/repositories/ThreadRepo'
 import { MessageRepo } from '../db/repositories/MessageRepo'
 import { SettingsRepo } from '../db/repositories/SettingsRepo'
 import { SyncManager } from '../sync/SyncManager'
+import { BodyPrefetcher } from '../sync/BodyPrefetcher'
 import { AttachmentStore } from '../attachments/AttachmentStore'
 import { sanitizeEmailHtml } from '../utils/sanitizeHtml'
 import { events } from '../sync/events'
@@ -194,6 +195,7 @@ export function registerMailIpc(): void {
       })
     return { thread, messages, events }
   })
+  handle('messages:prefetch', (threadId) => { BodyPrefetcher.enqueueThread(threadId) })
   handle('messages:body', async (messageId) => {
     const m = MessageRepo.get(messageId)
     if (!m) throw new Error('message introuvable')
@@ -236,6 +238,15 @@ export function registerMailIpc(): void {
     const senders = [...new Set(ids.map((id) => MessageRepo.get(id)?.from.address.toLowerCase()).filter((x): x is string => !!x && !own.has(x)))]
     if (role === 'spam') { const st = getDb().prepare('INSERT OR IGNORE INTO blocked_senders(address, created_at) VALUES (?, ?)'); for (const a of senders) st.run(a, Date.now()) }
     else if (role === 'inbox') { const st = getDb().prepare('DELETE FROM blocked_senders WHERE address = ?'); for (const a of senders) st.run(a) }
+    // le passé suit : vers Indésirables, tous les messages de ces expéditeurs encore en Réception partent aussi ;
+    // « pas indésirable » ramène tous leurs messages d'Indésirables en Réception
+    if ((role === 'spam' || role === 'inbox') && senders.length) {
+      const fromRole = role === 'spam' ? 'inbox' : 'spam'
+      const extra = (getDb().prepare(`SELECT m.id FROM messages m JOIN folders f ON f.id = m.folder_id WHERE f.role = ? AND lower(json_extract(m.from_json, '$.address')) IN (${senders.map(() => '?').join(',')}) LIMIT 2000`).all(fromRole, ...senders) as any[]).map((r) => r.id)
+      const known = new Set(ids)
+      for (const x of extra) if (!known.has(x)) { ids.push(x); known.add(x) }
+      if (extra.length) log.info('mail', `${role === 'spam' ? 'indésirable' : 'pas indésirable'} : ${extra.length} message(s) antérieur(s) des mêmes expéditeurs déplacé(s) aussi`)
+    }
     const headers = MessageRepo.headersByIds(ids)
     const threadIds = ThreadRepo.threadIdsForMessages(ids)
     for (const [folderId, hs] of groupByFolder(headers)) {
@@ -248,6 +259,11 @@ export function registerMailIpc(): void {
       for (const h of hs) byId[h.id] = uidMap[h.uid] ?? 0
       MessageRepo.moveToFolder(hs.map((h) => h.id), target.id, byId)
       FolderRepo.recount(from.id); FolderRepo.recount(target.id)
+      // signalement au serveur : mots-cles $Junk / $NotJunk sur les messages, une fois dans leur dossier d'arrivee
+      if (role === 'spam' || role === 'inbox') {
+        const newUids = hs.map((h) => uidMap[h.uid]).filter((u): u is number => !!u)
+        if (newUids.length) SyncManager.engine(hs[0].accountId).markJunk?.(target, newUids, role === 'spam')?.catch((e: any) => log.warn('mail', 'mots-cles junk', e?.message ?? e))
+      }
     }
     for (const t of threadIds) ThreadRepo.recompute(t)
     events.emitEvent('mail:changed', { accountId: headers[0]?.accountId ?? '', threadIds })

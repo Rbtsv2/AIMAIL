@@ -1,5 +1,5 @@
 // src/shared/models/Calendar.ts
-export type CalendarKind = 'local' | 'google' | 'caldav' | 'microsoft'
+export type CalendarKind = 'local' | 'google' | 'caldav' | 'microsoft' | 'ics'
 
 export interface Calendar {
   id: string

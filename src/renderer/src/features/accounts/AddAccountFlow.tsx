@@ -11,8 +11,10 @@ import { useUi } from '@/stores/ui.store'
 import { useMail } from '@/stores/mail.store'
 import logo from '@/assets/icons/logo.png'
 
+// Gmail passe par un mot de passe d'application (IMAP) : pas de vérification Google ni de plafond d'utilisateurs.
+// La connexion Google (OAuth) reste disponible via « Connexion Google (bêta) » dans le formulaire Gmail.
 const OAUTH: Record<string, { provider: 'google' | 'microsoft'; imap: AccountInput['imap']; smtp: AccountInput['smtp']; auth: AccountInput['auth'] }> = {
-  gmail: { provider: 'google', imap: { host: 'imap.gmail.com', port: 993, secure: true }, smtp: { host: 'smtp.gmail.com', port: 465, secure: true }, auth: 'oauth-google' },
+  'gmail-oauth': { provider: 'google', imap: { host: 'imap.gmail.com', port: 993, secure: true }, smtp: { host: 'smtp.gmail.com', port: 465, secure: true }, auth: 'oauth-google' },
   outlook: { provider: 'microsoft', imap: { host: 'outlook.office365.com', port: 993, secure: true }, smtp: { host: 'smtp.office365.com', port: 587, secure: false }, auth: 'oauth-microsoft' }
 }
 
@@ -36,14 +38,14 @@ export function AddAccountFlow({ onDone }: { onDone?: () => void }) {
     finally { setBusy(false) }
   }
 
-  const pick = async (p: ProviderPreset) => {
-    setProvider(p); setError(undefined)
+  const pick = async (p: ProviderPreset | 'gmail-oauth') => {
+    setProvider(p as ProviderPreset); setError(undefined)
     const o = OAUTH[p]
     if (!o) return
     setBusy(true)
     try {
       const t = await invoke('accounts:oauth', o.provider)
-      await finish({ email: t.email, name: t.name, provider: p, auth: o.auth, imap: o.imap, smtp: o.smtp, credentials: { accessToken: t.accessToken, refreshToken: t.refreshToken, expiresAt: t.expiresAt } })
+      await finish({ email: t.email, name: t.name, provider: (p === 'gmail-oauth' ? 'gmail' : p) as ProviderPreset, auth: o.auth, imap: o.imap, smtp: o.smtp, credentials: { accessToken: t.accessToken, refreshToken: t.refreshToken, expiresAt: t.expiresAt } })
     } catch (e: any) { setError(e?.message ?? String(e)) } finally { setBusy(false) }
   }
 

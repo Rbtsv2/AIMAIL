@@ -1,7 +1,7 @@
 // src/main/calendar/GoogleCalendar.ts
 import type { Account } from '@shared/models/Account'
 import type { Calendar, CalEvent, EventInput } from '@shared/models/Calendar'
-import { resolveAuth } from '../auth'
+import { resolveGoogleData as resolveAuth } from '../auth'
 import { CalendarRepo } from '../db/repositories/CalendarRepo'
 
 const API = 'https://www.googleapis.com/calendar/v3'

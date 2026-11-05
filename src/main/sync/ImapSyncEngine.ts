@@ -23,6 +23,7 @@ import { ContactRepo } from '../db/repositories/ContactRepo'
 import { getDb } from '../db'
 import { ensureRoleFolder } from '../ipc/mail.ipc'
 import { applyRules } from './Rules'
+import { BodyPrefetcher } from './BodyPrefetcher'
 import { AccountRepo } from '../db/repositories/AccountRepo'
 import { SettingsRepo } from '../db/repositories/SettingsRepo'
 
@@ -42,8 +43,15 @@ function guessRole(path: string, special?: string): FolderRole {
   return 'custom'
 }
 
+// délai maximal sur une opération IMAP interactive
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => { const t = setTimeout(() => reject(new Error(`${what} : délai dépassé`)), ms); p.then((v) => { clearTimeout(t); resolve(v) }, (e) => { clearTimeout(t); reject(e) }) })
+}
+
 export class ImapSyncEngine implements SyncEngine {
   private client: ImapFlow | null = null
+  private ui: ImapFlow | null = null          // connexion dédiée aux actions interactives (corps d'un message ouvert)
+  private uiConnecting: Promise<ImapFlow> | null = null
   constructor(private account: Account) {}
 
   private async getClient(): Promise<ImapFlow> {
@@ -60,8 +68,28 @@ export class ImapSyncEngine implements SyncEngine {
     return this.client
   }
 
+  /** Seconde connexion pour les lectures à la demande, afin de ne pas attendre derrière la synchronisation. */
+  private async getUiClient(): Promise<ImapFlow> {
+    if (this.ui?.usable) return this.ui
+    if (this.uiConnecting) return this.uiConnecting
+    this.uiConnecting = (async () => {
+      const auth = await resolveAuth(this.account)
+      const c = new ImapFlow({
+        host: this.account.imap.host, port: this.account.imap.port, secure: this.account.imap.secure,
+        auth: auth.accessToken ? { user: auth.user, accessToken: auth.accessToken } : { user: auth.user, pass: auth.pass ?? '' },
+        logger: false, emitLogs: false, connectionTimeout: 20_000, greetingTimeout: 15_000, socketTimeout: 2 * 60_000
+      })
+      c.on('error', (e) => log.warn('imap', this.account.email, 'ui', e.message))
+      c.on('close', () => { if (this.ui === c) this.ui = null })
+      await c.connect()
+      this.ui = c
+      return c
+    })().finally(() => { this.uiConnecting = null })
+    return this.uiConnecting
+  }
+
   async connect(): Promise<void> { await this.getClient() }
-  async disconnect(): Promise<void> { try { await this.client?.logout() } catch {} this.client = null }
+  async disconnect(): Promise<void> { try { await this.client?.logout() } catch {} this.client = null; try { await this.ui?.logout() } catch {} this.ui = null }
 
   async listFolders(): Promise<Folder[]> {
     const c = await this.getClient()
@@ -139,10 +167,11 @@ export class ImapSyncEngine implements SyncEngine {
         }
       }
       // règles de tri de l'utilisateur
-      if (folder.role === 'inbox' && inserted.length) {
-        try { const r = await applyRules(inserted); for (const id of r.moved) { const i = inserted.indexOf(id); if (i >= 0) inserted.splice(i, 1) } } catch (e: any) { log.warn('rules', e?.message ?? e) }
+      if ((folder.role === 'inbox' || folder.role === 'spam') && inserted.length) {
+        try { const r = await applyRules(inserted, { folderRole: folder.role }); for (const id of r.moved) { const i = inserted.indexOf(id); if (i >= 0) inserted.splice(i, 1) } } catch (e: any) { log.warn('rules', e?.message ?? e) }
       }
       if (folder.role === 'inbox' && inserted.length) Classifier.enqueueMany(inserted.slice(-30))
+      BodyPrefetcher.enqueueRecent(this.account.id, folder.id)
       if (inserted.length && SettingsRepo.app().collectAddresses !== false && folder.role !== 'spam' && folder.role !== 'trash') {
         const own = new Set(AccountRepo.list().map((a) => a.email.toLowerCase()))
         const addrs = inserted.flatMap((mid) => { const m = MessageRepo.get(mid); return m ? [m.from, ...m.to, ...m.cc] : [] })
@@ -187,11 +216,14 @@ export class ImapSyncEngine implements SyncEngine {
   }
 
   async fetchBody(message: Message): Promise<{ html: string | null; text: string | null }> {
-    const c = await this.getClient()
+    // connexion dédiée (la synchro peut tenir la connexion principale pendant plusieurs minutes), avec délai maximal
+    let c: ImapFlow
+    try { c = await this.getUiClient() } catch { c = await this.getClient() }
     const folder = FolderRepo.get(message.folderId)!
-    const lock = await c.getMailboxLock(folder.path)
+    const lock = await withTimeout(c.getMailboxLock(folder.path), 30_000, 'ouverture du dossier')
     try {
-      const dl = await c.download(String(message.uid), undefined, { uid: true })
+      const dl = await withTimeout(c.download(String(message.uid), undefined, { uid: true }), 60_000, 'téléchargement du message')
+      if (!dl || !dl.content) throw new Error('message introuvable sur le serveur (déplacé ou supprimé depuis)')
       const chunks: Buffer[] = []
       for await (const ch of dl.content) chunks.push(ch as Buffer)
       const parsed = await parseRaw(Buffer.concat(chunks))
@@ -226,6 +258,16 @@ export class ImapSyncEngine implements SyncEngine {
       const chunks: Buffer[] = []
       for await (const ch of dl.content) chunks.push(ch as Buffer)
       return Buffer.concat(chunks)
+    } finally { lock.release() }
+  }
+
+  /** Marque indesirable / legitime avec les mots-cles IMAP que lisent Dovecot, Thunderbird, iCloud (en plus du dossier Junk). */
+  async markJunk(folder: Folder, uids: number[], junk: boolean): Promise<void> {
+    const c = await this.getClient()
+    const lock = await c.getMailboxLock(folder.path)
+    try {
+      await c.messageFlagsAdd(uids, [junk ? '$Junk' : '$NotJunk', junk ? 'Junk' : 'NonJunk'], { uid: true }).catch(() => {})
+      await c.messageFlagsRemove(uids, [junk ? '$NotJunk' : '$Junk', junk ? 'NonJunk' : 'Junk'], { uid: true }).catch(() => {})
     } finally { lock.release() }
   }
 
@@ -302,7 +344,10 @@ export class ImapSyncEngine implements SyncEngine {
         try { await c.idle() } catch { break }
       }
     }
-    void start().catch((e) => { log.warn('idle', this.account.email, e?.message ?? e); if (!stopped) setTimeout(() => void start(), 15000) })
+    // relance avec repli progressif (réseau coupé la nuit : DNS EAI_AGAIN, ETIMEDOUT) ; toujours attrapé, jamais de rejet non géré
+    let delay = 15_000
+    const loop = (): void => { start().then(() => { delay = 15_000 }).catch((e) => { log.warn('idle', this.account.email, e?.message ?? e); if (!stopped) { setTimeout(loop, delay); delay = Math.min(delay * 2, 10 * 60_000) } }) }
+    loop()
     return () => { stopped = true; try { void this.idleClient?.logout() } catch {} this.idleClient = null }
   }
 

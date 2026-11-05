@@ -9,6 +9,7 @@ export interface ServerConfig {
 }
 
 export interface Account {
+  googleData?: boolean         // Google Agenda/Contacts connectés (compte OAuth, ou connexion dédiée sur un compte Gmail IMAP)
   id: string
   email: string
   name: string

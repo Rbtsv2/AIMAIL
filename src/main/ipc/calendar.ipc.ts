@@ -14,6 +14,7 @@ export function registerCalendarIpc(): void {
   handle('calendar:sync', () => CalendarService.sync())
   handle('calendar:addGoogle', (accountId) => CalendarService.addGoogle(accountId))
   handle('calendar:addCaldav', (input) => CalendarService.addCaldav(input))
+  handle('calendar:addIcs', (input) => CalendarService.addIcs(input))
   handle('calendar:addMicrosoft', (accountId) => CalendarService.addMicrosoft(accountId))
   handle('calendar:invitation', (messageId) => CalendarService.invitationFromMessage(messageId))
   handle('calendar:respond', (messageId, status) => CalendarService.respond(messageId, status))

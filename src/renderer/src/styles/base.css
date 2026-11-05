@@ -787,3 +787,20 @@ body.dragging .sidebar-account.toggle { cursor: grabbing; }
 .compose-quote-body { margin-top: 8px; padding: 10px 12px; border-left: 3px solid var(--hairline-strong); color: var(--text-2); font-size: var(--fs-sm); line-height: 1.5; overflow-x: auto; }
 .compose-quote-body img { max-width: 100%; }
 :root[data-compose-surface="light"] .compose-quote-body { background: #fff; color: #4b5563; }
+.msg-load-error { display: flex; align-items: center; gap: 12px; color: var(--danger); font-size: var(--fs-sm); }
+
+/* guide mot de passe d'application (Gmail) */
+.app-pass-guide { background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); padding: 12px 14px; font-size: var(--fs-sm); color: var(--text-2); line-height: 1.5; }
+.app-pass-title { font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.app-pass-guide ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.app-pass-guide a { color: var(--accent); }
+.app-pass-note { margin-top: 8px; font-size: var(--fs-xs); color: var(--text-3); }
+
+/* mot de passe d'application : 4 groupes de 4 cases */
+.apw { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.apw-groups { display: flex; gap: 10px; }
+.apw-group { display: flex; gap: 3px; }
+.apw-cell { width: 28px; height: 36px; text-align: center; font-family: var(--font-mono, ui-monospace, monospace); font-size: 15px; border: 1px solid var(--hairline-strong); border-radius: var(--r-sm); background: var(--surface); color: var(--text); outline: none; padding: 0; }
+.apw-cell:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.apw-tools { display: flex; gap: 2px; }
+.apw-count { font-size: var(--fs-xs); color: var(--text-3); min-width: 38px; }

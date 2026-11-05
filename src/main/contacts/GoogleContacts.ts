@@ -1,7 +1,7 @@
 // src/main/contacts/GoogleContacts.ts
 import type { Account } from '@shared/models/Account'
 import type { ContactInput } from '@shared/models/Contact'
-import { resolveAuth } from '../auth'
+import { resolveGoogleData as resolveAuth } from '../auth'
 import { ContactRepo } from '../db/repositories/ContactRepo'
 
 // Nécessite le scope https://www.googleapis.com/auth/contacts.readonly à l'ajout du compte Gmail.

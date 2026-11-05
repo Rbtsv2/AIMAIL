@@ -10,6 +10,7 @@ export interface SyncEngine {
   fetchBody(message: Message): Promise<{ html: string | null; text: string | null }>
   fetchAttachment(message: Message, partId: string): Promise<Buffer>
   setFlags(folder: Folder, uids: number[], patch: { unread?: boolean; starred?: boolean }): Promise<void>
+  markJunk?(folder: Folder, uids: number[], junk: boolean): Promise<void>
   move(folder: Folder, uids: number[], target: Folder): Promise<Record<number, number>>
   delete(folder: Folder, uids: number[]): Promise<void>
   append(folder: Folder, raw: Buffer, flags: string[]): Promise<number | null>

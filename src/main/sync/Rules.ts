@@ -46,8 +46,9 @@ export function ruleMatches(m: Message, r: Rule): boolean {
 }
 
 /** Applique les règles à une liste de messages (du même dossier). Renvoie les ids des messages déplacés hors du dossier. */
-export async function applyRules(messageIds: string[], opts: { rules?: Rule[]; onlyRuleId?: string } = {}): Promise<{ moved: string[]; touched: number }> {
-  const rules = (opts.rules ?? RuleRepo.list()).filter((r) => r.enabled && (!opts.onlyRuleId || r.id === opts.onlyRuleId))
+export async function applyRules(messageIds: string[], opts: { rules?: Rule[]; onlyRuleId?: string; folderRole?: 'inbox' | 'spam' } = {}): Promise<{ moved: string[]; touched: number }> {
+  const role = opts.folderRole ?? 'inbox'
+  const rules = (opts.rules ?? RuleRepo.list()).filter((r) => r.enabled && (!opts.onlyRuleId || r.id === opts.onlyRuleId) && ((r.scope ?? 'inbox') === 'both' || (r.scope ?? 'inbox') === role))
   const moved: string[] = []
   let touched = 0
   if (!rules.length) return { moved, touched }
@@ -61,9 +62,10 @@ export async function applyRules(messageIds: string[], opts: { rules?: Rule[]; o
       touched++
       let movedThis = false
       for (const a of r.actions) {
-        if (a.type === 'move' || a.type === 'spam' || a.type === 'trash') {
+        if (a.type === 'move' || a.type === 'spam' || a.type === 'trash' || a.type === 'inbox') {
           let target = a.type === 'move' ? FolderRepo.get(a.folderId) ?? undefined : undefined
-          if (a.type !== 'move') target = await ensureRoleFolder(m.accountId, a.type) ?? undefined
+          if (a.type === 'inbox') target = FolderRepo.byRole(m.accountId, 'inbox') ?? undefined
+          else if (a.type !== 'move') target = await ensureRoleFolder(m.accountId, a.type) ?? undefined
           if (!target || target.accountId !== m.accountId || target.id === m.folderId) continue
           const key = `${m.folderId}>${target.id}`
           const g = moves.get(key) ?? { from: m.folderId, to: target.id, ids: [] }; g.ids.push(m.id); moves.set(key, g); movedThis = true
