@@ -42,6 +42,7 @@ export const FolderRepo = {
   setCounts(folderId: string, unread: number, total: number): void {
     getDb().prepare('UPDATE folders SET unread=?, total=? WHERE id=?').run(unread, total, folderId)
   },
+  recountAll(): void { for (const r of getDb().prepare('SELECT id FROM folders').all() as any[]) this.recount(r.id) },
   recount(folderId: string): void {
     const r = getDb().prepare('SELECT COUNT(*) total, SUM(unread) unread FROM messages WHERE folder_id = ?').get(folderId) as any
     this.setCounts(folderId, r.unread ?? 0, r.total ?? 0)

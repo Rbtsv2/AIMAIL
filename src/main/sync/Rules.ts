@@ -59,21 +59,21 @@ export function ruleMatches(m: Message, r: Rule): boolean {
   return r.match === 'any' ? res.some(Boolean) : res.every(Boolean)
 }
 
-/** Applique les règles à une liste de messages (du même dossier). Renvoie les ids des messages déplacés hors du dossier. */
-export async function applyRules(messageIds: string[], opts: { rules?: Rule[]; onlyRuleId?: string; folderRole?: 'inbox' | 'spam' } = {}): Promise<{ moved: string[]; touched: number }> {
+export interface RulePlan { moves: Map<string, { from: string; to: string; ids: string[] }>; flags: { id: string; unread?: boolean; starred?: boolean }[]; moved: string[]; touched: number; accountIds: Set<string> }
+
+/** Phase 1 (sans accès serveur) : quels messages sont concernés et quoi faire. Peut s'exécuter sous verrou IMAP. */
+export async function planRules(messageIds: string[], opts: { rules?: Rule[]; onlyRuleId?: string; folderRole?: 'inbox' | 'spam' } = {}): Promise<RulePlan> {
   const role = opts.folderRole ?? 'inbox'
   const rules = (opts.rules ?? RuleRepo.list()).filter((r) => r.enabled && (!opts.onlyRuleId || r.id === opts.onlyRuleId) && ((r.scope ?? 'inbox') === 'both' || (r.scope ?? 'inbox') === role))
-  const moved: string[] = []
-  let touched = 0
-  if (!rules.length) return { moved, touched }
-  // regrouper les déplacements par (dossier source → cible) pour limiter les allers-retours IMAP
-  const moves = new Map<string, { from: string; to: string; ids: string[] }>()
-  const flags: { id: string; unread?: boolean; starred?: boolean }[] = []
+  const plan: RulePlan = { moves: new Map(), flags: [], moved: [], touched: 0, accountIds: new Set() }
+  if (!rules.length) return plan
+  let evaluated = 0
   for (const mid of messageIds) {
     const m = MessageRepo.get(mid); if (!m) continue
+    evaluated++
     for (const r of rules) {
       if (!ruleMatches(m, r)) continue
-      touched++
+      plan.touched++; plan.accountIds.add(m.accountId)
       let movedThis = false
       for (const a of r.actions) {
         if (a.type === 'move' || a.type === 'spam' || a.type === 'trash' || a.type === 'inbox') {
@@ -82,23 +82,31 @@ export async function applyRules(messageIds: string[], opts: { rules?: Rule[]; o
           else if (a.type !== 'move') target = await ensureRoleFolder(m.accountId, a.type) ?? undefined
           if (!target || target.accountId !== m.accountId || target.id === m.folderId) continue
           const key = `${m.folderId}>${target.id}`
-          const g = moves.get(key) ?? { from: m.folderId, to: target.id, ids: [] }; g.ids.push(m.id); moves.set(key, g); movedThis = true
-        } else if (a.type === 'markRead') flags.push({ id: m.id, unread: false })
-        else if (a.type === 'star') flags.push({ id: m.id, starred: true })
+          const g = plan.moves.get(key) ?? { from: m.folderId, to: target.id, ids: [] }; g.ids.push(m.id); plan.moves.set(key, g); movedThis = true
+          log.info('rules', `« ${r.name} » ↔ ${m.from.address} → ${target.path}`)
+        } else if (a.type === 'markRead') plan.flags.push({ id: m.id, unread: false })
+        else if (a.type === 'star') plan.flags.push({ id: m.id, starred: true })
         else if (a.type === 'category') MessageRepo.setCategory(m.id, a.value)
       }
-      if (movedThis) moved.push(m.id)
+      if (movedThis) plan.moved.push(m.id)
       if (r.stop) break
     }
   }
-  for (const f of flags) {
+  log.info('rules', `${role} : ${evaluated} message(s) évalué(s) contre ${rules.length} règle(s), ${plan.touched} concerné(s), ${plan.moved.length} à déplacer`)
+  return plan
+}
+
+/** Phase 2 : exécution serveur + base locale. À appeler HORS de tout verrou IMAP sur les dossiers concernés. */
+export async function executePlan(plan: RulePlan): Promise<void> {
+  for (const f of plan.flags) {
     const m = MessageRepo.get(f.id); if (!m) continue
     const folder = FolderRepo.get(m.folderId); if (!folder) continue
     try { await SyncManager.engine(m.accountId).setFlags(folder, [m.uid], { unread: f.unread, starred: f.starred }); MessageRepo.setFlags([m.id], { unread: f.unread, starred: f.starred }) } catch (e: any) { log.warn('rules', 'flags', e?.message ?? e) }
   }
-  for (const g of moves.values()) {
+  for (const g of plan.moves.values()) {
     const from = FolderRepo.get(g.from); const to = FolderRepo.get(g.to); if (!from || !to) continue
-    const msgs = g.ids.map((x) => MessageRepo.get(x)).filter((x): x is Message => !!x)
+    const msgs = g.ids.map((x) => MessageRepo.get(x)).filter((x): x is Message => !!x && x.folderId === g.from)
+    if (!msgs.length) continue
     try {
       const uidMap = await SyncManager.engine(from.accountId).move(from, msgs.map((x) => x.uid), to)
       const byId: Record<string, number> = {}; for (const x of msgs) byId[x.id] = uidMap[x.uid] ?? 0
@@ -108,6 +116,12 @@ export async function applyRules(messageIds: string[], opts: { rules?: Rule[]; o
       log.info('rules', `${msgs.length} message(s) → ${to.path}`)
     } catch (e: any) { log.warn('rules', 'move', e?.message ?? e) }
   }
-  if (touched) for (const acc of new Set(messageIds.map((x) => MessageRepo.get(x)?.accountId).filter((x): x is string => !!x))) events.emitEvent('mail:changed', { accountId: acc })
-  return { moved, touched }
+  if (plan.touched) for (const acc of plan.accountIds) events.emitEvent('mail:changed', { accountId: acc })
+}
+
+/** Plan + exécution (hors synchro : « Appliquer maintenant », création de règle…). */
+export async function applyRules(messageIds: string[], opts: { rules?: Rule[]; onlyRuleId?: string; folderRole?: 'inbox' | 'spam' } = {}): Promise<{ moved: string[]; touched: number }> {
+  const plan = await planRules(messageIds, opts)
+  await executePlan(plan)
+  return { moved: plan.moved, touched: plan.touched }
 }

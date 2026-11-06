@@ -22,7 +22,7 @@ import { Classifier } from '../ai/Classifier'
 import { ContactRepo } from '../db/repositories/ContactRepo'
 import { getDb } from '../db'
 import { ensureRoleFolder } from '../ipc/mail.ipc'
-import { applyRules } from './Rules'
+import { planRules, executePlan, type RulePlan } from './Rules'
 import { BodyPrefetcher } from './BodyPrefetcher'
 import { AccountRepo } from '../db/repositories/AccountRepo'
 import { SettingsRepo } from '../db/repositories/SettingsRepo'
@@ -115,6 +115,7 @@ export class ImapSyncEngine implements SyncEngine {
   }
 
   async syncFolder(folder: Folder, opts: { limit?: number } = {}): Promise<void> {
+    let rulePlan: RulePlan | null = null
     const c = await this.getClient()
     const lock = await c.getMailboxLock(folder.path)
     try {
@@ -122,12 +123,20 @@ export class ImapSyncEngine implements SyncEngine {
       if (!mb) return
       if (folder.uidValidity && mb.uidValidity !== BigInt(folder.uidValidity)) FolderRepo.resetFolder(folder.id)
       const limit = opts.limit ?? INITIAL_SYNC_LIMIT
-      const allUids = (((await c.search({ all: true }, { uid: true })) || []) as number[]).sort((a, b) => a - b)
+      const exists = Number(c.mailbox && typeof c.mailbox === 'object' ? c.mailbox.exists ?? 0 : 0)
+      const searched = await c.search({ all: true }, { uid: true })
+      const allUids = ((Array.isArray(searched) ? searched : []) as number[]).sort((a, b) => a - b)
+      // garde-fou : une liste vide (ou très incomplète) alors que le serveur annonce des messages = connexion défaillante, pas une suppression
+      if (exists > 0 && allUids.length === 0) throw new Error(`liste des messages vide alors que le serveur en annonce ${exists} : synchro abandonnée`)
+      if (exists > 0 && allUids.length < exists * 0.5) throw new Error(`liste des messages incomplète (${allUids.length}/${exists}) : synchro abandonnée`)
       const serverUids = Number.isFinite(limit) ? allUids.slice(-limit) : allUids
       const serverSet = new Set(serverUids)
       const touched = new Set<string>()
 
       const gone = MessageRepo.uidsInFolder(folder.id).filter((u) => !serverSet.has(u))
+      // seconde protection : ne jamais effacer plus de la moitié d'un dossier (au-delà de 20 messages) sans que le serveur le confirme
+      const localCount = MessageRepo.uidsInFolder(folder.id).length
+      if (gone.length > 20 && gone.length > localCount / 2 && allUids.length < localCount / 2) throw new Error(`${gone.length}/${localCount} messages locaux absents du serveur : suspect, synchro abandonnée`)
       if (gone.length) {
         for (const u of gone) { const r = MessageRepo.byUid(folder.id, u); if (r) touched.add(r.threadId) }
         MessageRepo.deleteByUids(folder.id, gone)
@@ -169,8 +178,14 @@ export class ImapSyncEngine implements SyncEngine {
         }
       }
       // règles de tri de l'utilisateur
-      if ((folder.role === 'inbox' || folder.role === 'spam') && inserted.length) {
-        try { const r = await applyRules(inserted, { folderRole: folder.role }); for (const id of r.moved) { const i = inserted.indexOf(id); if (i >= 0) inserted.splice(i, 1) } } catch (e: any) { log.warn('rules', e?.message ?? e) }
+      // règles de tri : sur tout le contenu du dossier à chaque passage (pas seulement les nouveaux), pour qu'aucun message
+      // correspondant à une règle ne puisse rester en Réception, quel que soit son chemin d'arrivée
+      if (folder.role === 'inbox' || folder.role === 'spam') {
+        try {
+          // le dossier est verrouillé ici : on planifie seulement, l'exécution (déplacements serveur) a lieu après la libération du verrou
+          rulePlan = await planRules(MessageRepo.idsInFolder(folder.id), { folderRole: folder.role })
+          for (const id of rulePlan.moved) { const i = inserted.indexOf(id); if (i >= 0) inserted.splice(i, 1) }
+        } catch (e: any) { log.warn('rules', e?.message ?? e) }
       }
       if (folder.role === 'inbox' && inserted.length) Classifier.enqueueMany(inserted.slice(-30))
       BodyPrefetcher.enqueueRecent(this.account.id, folder.id)
@@ -195,6 +210,8 @@ export class ImapSyncEngine implements SyncEngine {
       FolderRepo.recount(folder.id)
       FolderRepo.setUidState(folder.id, Number(mb.uidValidity), Number(mb.uidNext))
     } finally { lock.release() }
+    // verrou rendu : exécution des déplacements décidés par les règles
+    if (rulePlan && (rulePlan.moves.size || rulePlan.flags.length || rulePlan.touched)) { try { await executePlan(rulePlan) } catch (e: any) { log.warn('rules', e?.message ?? e) } }
   }
 
   private toMessage(folder: Folder, msg: FetchMessageObject): Message {

@@ -22,6 +22,7 @@ class SyncManagerImpl {
   private slots = new Map<string, Slot>()
 
   async start(): Promise<void> {
+    try { FolderRepo.recountAll() } catch (e: any) { log.warn('sync', 'recomptage', e?.message ?? e) }
     for (const a of AccountRepo.list()) this.attach(a)
   }
 
@@ -109,6 +110,19 @@ class SyncManagerImpl {
       }
     } catch (e: any) { log.warn('idle', s.account.email, e?.message) }
     s.timer = setTimeout(() => void this.loop(s), s.status.state === 'idle' ? 5 * 60_000 : s.backoff)
+  }
+
+  /** Après une mise en veille ou une coupure réseau : les sockets IMAP sont morts sans le savoir → tout reconnecter et resynchroniser. */
+  async reconnectAll(reason: string): Promise<void> {
+    log.info('sync', `reconnexion de tous les comptes (${reason})`)
+    for (const s of this.slots.values()) {
+      s.stopIdle?.(); s.stopIdle = undefined
+      if (s.timer) { clearTimeout(s.timer); s.timer = undefined }
+      try { await s.engine.disconnect() } catch {}
+      s.backoff = 5000
+      // relance décalée pour laisser le réseau revenir
+      s.timer = setTimeout(() => void this.loop(s), 3000)
+    }
   }
 
   async stopAll(): Promise<void> {

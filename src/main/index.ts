@@ -1,5 +1,6 @@
 // src/main/index.ts
 import { loadDevEnv } from './env'
+import { powerMonitor } from 'electron'
 import { app, BrowserWindow, dialog, Notification, nativeTheme } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { createWindow, getWindow } from './window'
@@ -64,6 +65,12 @@ app.whenReady().then(async () => {
   createWindow()
   createTray()
   await SyncManager.start()
+  // veille / réveil / verrouillage : connexions à refaire
+  powerMonitor.on('resume', () => void SyncManager.reconnectAll('réveil'))
+  powerMonitor.on('unlock-screen', () => void SyncManager.reconnectAll('déverrouillage'))
+  // veille non signalée (horloge qui saute) : reconnexion si le processus n'a pas tourné pendant plus de 3 min
+  let lastTick = Date.now()
+  setInterval(() => { const now = Date.now(); if (now - lastTick > 3 * 60_000) void SyncManager.reconnectAll('reprise après inactivité'); lastTick = now }, 30_000)
   setTimeout(() => void CalendarService.sync(), 8000)
   setTimeout(() => void Indexer.runOnce(), 15000)
   setInterval(() => void Indexer.runOnce(), 3 * 60_000)

@@ -80,6 +80,7 @@ export const MessageRepo = {
   existsUid(folderId: string, uid: number): boolean {
     return !!getDb().prepare('SELECT 1 FROM messages WHERE folder_id = ? AND uid = ?').get(folderId, uid)
   },
+  idsInFolder(folderId: string): string[] { return (getDb().prepare('SELECT id FROM messages WHERE folder_id = ? ORDER BY date DESC LIMIT 5000').all(folderId) as any[]).map((r) => r.id) },
   uidsInFolder(folderId: string): number[] {
     return getDb().prepare('SELECT uid FROM messages WHERE folder_id = ?').all(folderId).map((r: any) => r.uid)
   },

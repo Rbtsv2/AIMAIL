@@ -25,7 +25,7 @@ function write(level: string, scope: string, a: unknown[]): void {
 }
 
 export const log = {
-  info: (scope: string, ...a: unknown[]) => { console.log(`[${ts()}] [${scope}]`, ...a); if (app.isPackaged) write('INFO', scope, a) },
+  info: (scope: string, ...a: unknown[]) => { console.log(`[${ts()}] [${scope}]`, ...a); write('INFO', scope, a) },
   warn: (scope: string, ...a: unknown[]) => { console.warn(`[${ts()}] [${scope}]`, ...a); write('WARN', scope, a) },
   error: (scope: string, ...a: unknown[]) => { console.error(`[${ts()}] [${scope}]`, ...a); write('ERROR', scope, a) },
   path: (): string | null => file()
